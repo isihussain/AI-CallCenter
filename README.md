@@ -4,6 +4,16 @@ An open-source starting point for a multi-tenant AI telephone assistant. It comb
 
 The project is a self-hosted application codebase, not a hosted service. You operate the server, telephone routes, provider accounts, customer data, backups, and legal notices.
 
+## Screenshots
+
+The screenshots below show the Turkish-language administrator interface. Customer identities and live usage values are obscured.
+
+![Dashboard overview](dashboard-overview.png)
+
+![AI agent management](ai-agents.png)
+
+![Call history](call-history.png)
+
 ## What it includes
 
 - **Tenant accounts:** administrator and customer roles, password hashing, cookie sessions, per-customer records, and tenant-scoped API routes.
@@ -165,3 +175,4 @@ Issues and pull requests are welcome. Before submitting, remove customer informa
 ## License
 
 Released under the MIT License. See [`LICENSE`](LICENSE).
+
