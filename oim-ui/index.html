@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="AI Call Center SaaS administration and customer portal" />
+    <title>AI Call Center SaaS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+    <link rel="stylesheet" href="styles.css?v=20261027-greeting" />
+    <link rel="stylesheet" href="login.css" />
+  </head>
+  <body>
+    <section class="login-screen" id="login-screen" aria-labelledby="login-title">
+      <div class="login-card">
+        <div class="brand-lockup login-brand"><div class="brand-mark" aria-hidden="true">O</div><div><div class="brand-name">OIM</div><div class="brand-caption">Dijital operatör</div></div></div>
+        <p class="eyebrow">GÜVENLİ YÖNETİM PANELİ</p>
+        <h1 id="login-title">Hesabınıza giriş yapın</h1>
+        <p class="login-copy">Müşterilerinizi, AI ajanlarınızı ve kullanım kredilerinizi tek yerden yönetin.</p>
+        <form id="login-form" class="login-form">
+          <label for="username">Kullanıcı adı</label><input id="username" name="username" autocomplete="username" required placeholder="Kullanıcı adınız" />
+          <label for="password">Parola</label><input id="password" name="password" type="password" autocomplete="current-password" required placeholder="Parolanız" />
+          <button class="button primary full" type="submit">Giriş yap <span aria-hidden="true">→</span></button>
+          <p class="form-error" id="login-error" role="alert"></p>
+        </form>
+        <p class="login-foot">OIM · AI Call Center</p>
+      </div>
+    </section>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Ana menü">
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true">O</div>
+          <div>
+            <div class="brand-name">OIM</div>
+            <div class="brand-caption">Dijital operatör</div>
+          </div>
+        </div>
+
+        <div class="tenant-switcher">
+          <span class="eyebrow">AKTİF MÜŞTERİ</span>
+          <button class="tenant-button" type="button" aria-label="Aktif müşteriyi değiştir">
+            <span class="tenant-avatar">NK</span>
+            <span class="tenant-copy"><strong>AI Call Center</strong><small>SaaS</small></span>
+            <span class="chevron" aria-hidden="true">⌄</span>
+          </button>
+        </div>
+
+        <nav class="nav-groups">
+          <div class="nav-group">
+            <span class="nav-heading">ÇALIŞMA ALANI</span>
+            <a class="nav-item active" href="#dashboard" data-view="dashboard"><span class="nav-icon"><i class="fa-solid fa-chart-pie" aria-hidden="true"></i></span> Genel Bakış</a>
+            <a class="nav-item" href="#calls" data-view="calls"><span class="nav-icon"><i class="fa-solid fa-phone-volume" aria-hidden="true"></i></span> Çağrılar <span class="nav-badge" id="nav-call-count">0</span></a>
+            <a class="nav-item" href="#appointments" data-view="appointments"><span class="nav-icon"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i></span> Randevular</a>
+            <a class="nav-item" href="#agents" data-view="agents"><span class="nav-icon"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></span> AI Ajanları</a>
+            <a class="nav-item" href="#opening-message" data-view="opening-message" data-customer-only><span class="nav-icon"><i class="fa-solid fa-comment-dots" aria-hidden="true"></i></span> Açılış mesajı</a>
+            <a class="nav-item" href="#customers" data-view="customers" data-admin-only><span class="nav-icon"><i class="fa-solid fa-users" aria-hidden="true"></i></span> Müşteriler</a>
+          </div>
+          <div class="nav-group">
+            <span class="nav-heading">YÖNETİM</span>
+            <a class="nav-item" href="#sip" data-view="sip" data-admin-only><span class="nav-icon"><i class="fa-solid fa-network-wired" aria-hidden="true"></i></span> SIP Bağlantıları</a>
+            <a class="nav-item" href="#knowledge" data-view="knowledge" data-customer-only><span class="nav-icon"><i class="fa-solid fa-book-open" aria-hidden="true"></i></span> Bilgi Bankası</a>
+            <a class="nav-item" href="#telegram" data-view="telegram"><span class="nav-icon"><i class="fa-brands fa-telegram" aria-hidden="true"></i></span> Telegram</a>
+            <a class="nav-item" href="#settings" data-view="settings" data-admin-only><span class="nav-icon"><i class="fa-solid fa-sliders" aria-hidden="true"></i></span> Ayarlar</a>
+          </div>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="system-status"><span class="status-dot"></span><span>Telefon sistemi aktif</span></div>
+          <a class="help-link" href="/help.html"><span>?</span> Yardım merkezi</a>
+          <div class="user-card"><div class="user-avatar">YC</div><div><strong id="sidebar-company-name">AI Call Center</strong><small id="sidebar-user-role">Yönetici</small></div><button type="button" class="more-button" aria-label="Kullanıcı menüsü"><i class="fa-solid fa-ellipsis-vertical"></i></button></div>
+        </div>
+      </aside>
+
+      <main class="main-content" id="dashboard">
+        <header class="topbar">
+          <div class="mobile-brand"><span class="brand-mark">O</span><strong>OIM</strong></div>
+          <div class="breadcrumb"><span>OIM</span><span>/</span><strong>Genel Bakış</strong></div>
+          <div class="top-actions"><button class="icon-button notification-button" type="button" aria-label="Bildirimler"><span class="notification-dot"></span><i class="fa-solid fa-bell" aria-hidden="true"></i></button><button class="profile-chip" type="button" aria-expanded="false"><span class="profile-avatar">YC</span><span id="top-company-name">AI Call Center</span><span class="chevron">⌄</span></button><div class="profile-menu" hidden><button type="button" data-profile-settings><i class="fa-solid fa-gear"></i> Ayarlar</button><button type="button" data-profile-logout><i class="fa-solid fa-right-from-bracket"></i> Çıkış yap</button></div></div>
+        </header>
+
+        <div class="page-content">
+          <section class="welcome-row" data-dashboard-only>
+            <div><p class="eyebrow" id="today-label">BUGÜN</p><h1>Günaydın, AI Call Center</h1><p class="subhead">Dijital operatörleriniz bugün sizin için çalışıyor.</p></div>
+            <div class="header-actions"><select id="dashboard-tenant" class="dashboard-tenant" data-admin-only aria-label="Dashboard müşterisi"><option value="">Henüz müşteri yok</option></select><button class="button secondary" type="button" data-toast="Rapor hazırlama yakında aktif olacak.">↧ <span>Rapor al</span></button><button class="button primary" type="button" data-open-customers>＋ <span>Yeni müşteri</span></button></div>
+          </section>
+
+          <section class="metric-grid" aria-label="Özet metrikler" data-dashboard-only>
+            <article class="metric-card"><div class="metric-top"><span class="metric-label">TOPLAM ÇAĞRI</span><span class="metric-icon blue">◔</span></div><div class="metric-value" id="metric-calls">—</div><div class="metric-foot positive"><span>canlı veriler</span></div></article>
+            <article class="metric-card"><div class="metric-top"><span class="metric-label">TAMAMLANAN</span><span class="metric-icon violet">✦</span></div><div class="metric-value" id="metric-completed">—</div><div class="metric-foot positive"><span>AI tarafından yanıtlandı</span></div></article>
+            <article class="metric-card"><div class="metric-top"><span class="metric-label">ORT. ÇAĞRI SÜRESİ</span><span class="metric-icon orange">◷</span></div><div class="metric-value" id="metric-duration">—</div><div class="metric-foot neutral"><span>dakika:saniye</span></div></article>
+            <article class="metric-card"><div class="metric-top"><span class="metric-label">KALAN KREDİ</span><span class="metric-icon green">♙</span></div><div class="metric-value" id="metric-credits">—</div><div class="metric-foot positive"><span>kullanılabilir bakiye</span></div></article>
+          </section>
+
+          <section class="content-grid" data-view-panel="agents">
+            <article class="panel chart-panel"><div class="panel-heading"><div><h2>Çağrı trafiği</h2><p>Son 7 günün gelen ve giden çağrıları</p></div><button class="select-button" type="button">Son 7 gün <span>⌄</span></button></div><div class="chart-legend"><span><i class="legend-dot blue-dot"></i>Gelen çağrı</span><span><i class="legend-dot orange-dot"></i>Giden çağrı</span></div><div class="chart" aria-label="Çağrı trafiği grafiği"><div class="y-labels"><span>300</span><span>200</span><span>100</span><span>0</span></div><div class="chart-area"><div class="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 700 210" role="img" aria-label="Gelen ve giden çağrı trendi"><defs><linearGradient id="fillBlue" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#2f80ed" stop-opacity=".24"/><stop offset="1" stop-color="#2f80ed" stop-opacity="0"/></linearGradient></defs><path class="area-blue" d="M0 164 C35 145 55 152 95 122 S155 132 192 105 S258 126 290 88 S350 104 388 64 S445 82 480 44 S545 70 580 48 S640 58 700 20 L700 210 L0 210 Z"/><path class="line-blue" d="M0 164 C35 145 55 152 95 122 S155 132 192 105 S258 126 290 88 S350 104 388 64 S445 82 480 44 S545 70 580 48 S640 58 700 20"/><path class="line-orange" d="M0 184 C43 174 63 183 100 162 S157 171 198 140 S252 151 294 126 S350 139 390 112 S448 124 484 94 S545 111 585 82 S648 97 700 70"/></svg><div class="x-labels"><span>Pzt</span><span>Sal</span><span>Çar</span><span>Per</span><span>Cum</span><span>Cmt</span><span>Paz</span></div></div></div></article>
+
+            <article class="panel agents-panel"><div class="panel-heading"><div><h2>AI ajanları</h2><p>Operasyon durumu</p></div><a class="text-link" href="#agents">Tümünü gör →</a></div><div class="agent-list"><div class="agent-row"><div class="agent-logo coral">A</div><div class="agent-info"><strong>Example Voice Agent</strong><small>Sample Workspace</small></div><span class="agent-state muted">Kurulmadı</span><span class="agent-calls">—</span></div><div class="agent-row"><div class="agent-logo gray">＋</div><div class="agent-info"><strong>Yeni AI ajanı</strong><small>Henüz yapılandırılmadı</small></div><span class="agent-state muted">Taslak</span><span class="agent-calls">—</span></div></div><button class="button outline full" type="button" data-toast="AI ajanı oluşturma ekranı yakında açılacak.">＋ Yeni AI ajanı oluştur</button></article>
+          </section>
+
+          <section class="content-grid lower-grid"><article class="panel table-panel" id="calls"><div class="panel-heading"><div><h2>Son çağrılar</h2><p>Gerçek telefon ve test çağrıları</p></div><span class="pill success">Canlı</span></div><div class="table-wrap"><table><thead><tr><th>MÜŞTERİ</th><th>NUMARA</th><th>AI AJANI</th><th>SÜRE</th><th>KREDİ</th><th>SONUÇ</th></tr></thead><tbody><tr><td colspan="6">Çağrılar yükleniyor…</td></tr></tbody></table></div></article><article class="panel setup-panel"><div class="panel-heading"><div><h2>Kurulum durumu</h2><p id="setup-tenant-name">Örnek çalışma alanı</p></div><span class="progress-count">0/5</span></div><div class="progress-track"><span style="width: 0%"></span></div><div class="check-list"><label class="check"><span>○</span> SIP bağlantısı</label><label class="check"><span>○</span> AI ajanı oluşturuldu</label><label class="check"><span>○</span> Bilgi bankası eklendi</label><label class="check"><span>○</span> Test çağrısı</label><label class="check"><span>○</span> Canlıya alındı</label></div><button class="button primary full" type="button" data-toast="Önce kurulum adımlarını tamamlayın.">Kurulumu tamamlayın</button></article></section>
+          <section class="panel table-panel" id="usage-costs" data-admin-only><div class="panel-heading"><div><h2>AI kullanım maliyeti</h2><p>Seçili müşterinin son çağrılarından hesaplanan OpenAI tahmini.</p></div><span class="pill success">Yönetici</span></div><div class="metric-grid compact"><article class="metric-card"><div class="metric-top"><span class="metric-label">OPENAI TAHMİNİ</span><span class="metric-icon blue">$</span></div><div class="metric-value" id="metric-openai-usd">$0.00</div><div class="metric-foot"><span>kayıtlı kullanım</span></div></article><article class="metric-card"><div class="metric-top"><span class="metric-label">TOPLAM TOKEN</span><span class="metric-icon green">#</span></div><div class="metric-value" id="metric-total-tokens">0</div><div class="metric-foot"><span>Realtime input + output</span></div></article><article class="metric-card"><div class="metric-top"><span class="metric-label">ÖLÇÜMLÜ ÇAĞRI</span><span class="metric-icon coral">◉</span></div><div class="metric-value" id="metric-metered-calls">0</div><div class="metric-foot"><span>usage kaydı bulunan</span></div></article></div></section>
+          <section class="panel table-panel" id="appointments"><div class="panel-heading"><div><h2>Randevu takvimi</h2><p>AI asistanın teyit ederek oluşturduğu randevular</p></div><span class="pill success">Canlı</span></div><div class="table-wrap"><table><thead><tr><th>TARİH / SAAT</th><th>MÜŞTERİ</th><th>TELEFON</th><th>HİZMET</th><th>DURUM</th></tr></thead><tbody id="appointments-body"><tr><td colspan="5">Randevular yükleniyor…</td></tr></tbody></table></div></section>
+          <section class="panel table-panel" id="crm" data-customer-only><div class="panel-heading"><div><h2>Müşteri CRM’i</h2><p>Gelen müşteriler, notlar ve geçmiş iletişim bilgileri.</p></div><span class="pill success">Özel alanınız</span></div><form id="contact-form" class="provider-form"><label>Ad soyad<input id="contact-name" required placeholder="Müşteri adı" /></label><label>Telefon<input id="contact-phone" placeholder="05xx..." /></label><label>E-posta<input id="contact-email" type="email" /></label><label>Not<input id="contact-notes" placeholder="Özel not" /></label><button class="button primary" type="submit">CRM kaydı ekle</button><span id="contact-status" class="form-note"></span></form><div class="table-wrap"><table><thead><tr><th>AD SOYAD</th><th>TELEFON</th><th>E-POSTA</th><th>NOT</th></tr></thead><tbody id="contacts-body"><tr><td colspan="4">CRM kayıtları yükleniyor…</td></tr></tbody></table></div></section>
+          <section class="panel settings-panel" id="customer-telegram" data-customer-only><div class="panel-heading"><div><h2>Telegram çağrı kayıtları</h2><p>Kendi botunuzu ve özel grubunuzu bağlayın. Ses kayıtları yalnızca sizin grubunuza gönderilir.</p></div><span class="pill success">Müşteri hesabı</span></div><form id="customer-telegram-form" class="provider-form"><label>Bot tokeni<input id="customer-telegram-token" type="password" autocomplete="new-password" placeholder="BotFather tokeni" /></label><label>Özel grup Chat ID<input id="customer-telegram-chat" placeholder="-100..." /></label><label class="check"><input id="customer-telegram-enabled" type="checkbox" /> Kayıt gönderimini etkinleştir</label><button class="button primary" type="submit">Telegram’ı bağla</button><span id="customer-telegram-status" class="form-note"></span></form></section>
+          <section class="panel settings-panel" id="calendar" data-customer-only><div class="panel-heading"><div><h2>Google Calendar</h2><p>Dolu saatler otomatik kapanır; AI yalnızca uygun zamanlara rezervasyon oluşturur.</p></div><span class="pill success">OAuth güvenli bağlantı</span></div><button class="button primary" type="button" id="google-connect">Google Calendar’ı bağla</button><span id="google-status" class="form-note">Durum kontrol ediliyor…</span></section>
+          <section class="panel table-panel" id="knowledge" data-customer-only><div class="panel-heading"><div><h2>Bilgi Bankası</h2><p>AI asistanınızı üç dilde işletme bilgilerinizle eğitin. Yalnızca yayınlanmış içerik çağrılarda kullanılır.</p></div><span class="pill success">TR / EN / RU</span></div><p class="form-note">Önce promptu indirin, ChatGPT’ye işletme bilgilerinizi verin ve üretilen üç Markdown dosyasını aşağıdaki ilgili dil alanlarına yükleyin.</p><div class="knowledge-downloads"><a class="button secondary" href="/knowledge-prompt.md" download>↓ ChatGPT promptu</a><a class="button outline" href="/knowledge-template-tr.md" download>↓ Türkçe şablon</a><a class="button outline" href="/knowledge-template-en.md" download>↓ English template</a><a class="button outline" href="/knowledge-template-ru.md" download>↓ Русский шаблон</a></div><form id="knowledge-form" class="provider-form"><label>Dil<select id="knowledge-language"><option value="tr">Türkçe (TR)</option><option value="en">English (EN)</option><option value="ru">Русский (RU)</option></select></label><label>Başlık<input id="knowledge-title" required placeholder="Hizmetler ve fiyatlar" /></label><label>İçerik<textarea id="knowledge-content" rows="14" required placeholder="ChatGPT'nin ürettiği Markdown içeriğini buraya yapıştırın."></textarea></label><label class="check"><input id="knowledge-published" type="checkbox" checked /> Yayınla ve AI çağrılarında kullan</label><button class="button primary" type="submit">Bilgi bankasına kaydet</button><span id="knowledge-status" class="form-note"></span></form><div class="table-wrap"><table><thead><tr><th>DİL</th><th>BAŞLIK</th><th>DURUM</th><th>GÜNCELLENDİ</th></tr></thead><tbody id="knowledge-body"><tr><td colspan="4">Bilgi kayıtları yükleniyor…</td></tr></tbody></table></div></section>
+          <section class="panel opening-message-panel" id="opening-message" data-view-panel="opening-message" data-customer-only>
+            <div class="panel-heading"><div><h2>Açılış mesajı</h2><p>Arayan kişi konuşmadan önce AI asistanınız bu mesajı söyler.</p></div></div>
+            <form id="ai-settings-form" class="provider-form">
+              <fieldset id="ai-settings-fields" disabled>
+                <label for="ai-greeting">Karşılama metni (First message)</label>
+                <textarea id="ai-greeting" rows="5" maxlength="1000" required aria-describedby="ai-greeting-help ai-greeting-count" placeholder="Merhaba, merkezimize hoş geldiniz. Size nasıl yardımcı olabilirim?"></textarea>
+                <div class="greeting-hints"><p id="ai-greeting-help">Kaydettikten sonra gelen yeni çağrılarda kullanılır. Devam eden görüşmeler değişmez.</p><span id="ai-greeting-count">0 / 1000 karakter</span></div>
+                <details class="ai-extra-settings"><summary>Ses ve çalışma saatleri</summary><div class="ai-extra-fields">
+                  <label for="ai-voice">Ses<select id="ai-voice"><option value="alloy">Alloy</option><option value="ash">Ash</option><option value="ballad">Ballad</option><option value="coral">Coral</option><option value="echo">Echo</option><option value="sage">Sage</option><option value="shimmer">Shimmer</option><option value="verse">Verse</option></select></label>
+                  <label for="ai-hours">Çalışma saatleri<textarea id="ai-hours" rows="2" maxlength="500" placeholder="Pazartesi-Cumartesi 09:00–18:00"></textarea></label>
+                </div></details>
+                <button class="button primary" id="ai-settings-save" type="submit">Açılış mesajını kaydet</button>
+              </fieldset>
+              <p id="ai-settings-status" class="form-note" role="status" aria-live="polite">Mesaj yükleniyor…</p>
+              <button class="button secondary" id="ai-settings-retry" type="button" hidden>Yeniden yükle</button>
+            </form>
+          </section>
+          <section class="panel table-panel" id="customers" data-admin-only><div class="panel-heading"><div><h2>SaaS müşterileri</h2><p>Müşteri girişi oluşturun, başlangıç kredisi verin ve parolasını yönetin.</p></div><span class="pill success">Yönetici</span></div><form id="customer-form" class="provider-form"><label>Müşteri / işletme adı<input id="customer-name" required placeholder="İşletme adı" /></label><label>E-posta<input id="customer-email" type="email" placeholder="musteri@example.com" /></label><label>Kullanıcı adı<input id="customer-username" required autocomplete="off" placeholder="kullanici" /></label><label>Geçici parola<input id="customer-password" type="password" required minlength="8" autocomplete="new-password" placeholder="En az 8 karakter" /></label><label>Başlangıç kredisi<input id="customer-credits" type="number" min="0" step="0.01" value="0" /></label><button class="button primary" type="submit">Müşteri hesabını oluştur</button><span id="customer-status" class="form-note"></span></form><div class="table-wrap"><table><thead><tr><th>MÜŞTERİ</th><th>KULLANICI</th><th>E-POSTA</th><th>KREDİ</th><th>DURUM</th><th>PAROLA</th></tr></thead><tbody id="customers-body"><tr><td colspan="6">Müşteriler yükleniyor…</td></tr></tbody></table></div></section>
+          <section class="panel settings-panel" id="settings" data-admin-only><div class="panel-heading"><div><h2>AI sağlayıcıları</h2><p>API anahtarları yalnızca sunucuda şifreli olarak saklanır. Aktif sağlayıcıyı buradan seçin.</p></div></div><form id="provider-form" class="provider-form"><label>Sağlayıcı<select id="provider-name"><option value="openai">OpenAI Realtime</option><option value="elevenlabs">ElevenLabs</option><option value="deepgram">Deepgram</option></select></label><label>Model<input id="provider-model" placeholder="gpt-realtime" /></label><label>API anahtarı<input id="provider-key" type="password" autocomplete="new-password" placeholder="Değiştirmek için girin" /></label><label class="check"><input id="provider-enabled" type="checkbox" /> Bu sağlayıcıyı aktif kullan</label><button class="button primary" type="submit">Güvenli şekilde kaydet</button><span id="provider-status" class="form-note"></span></form><hr /><div class="panel-heading"><div><h2>Müşteri SIP ayarları</h2><p>Seçtiğin müşteri için DID ve SIP hesabı ayrı saklanır.</p></div></div><form id="sip-form" class="provider-form"><label>Müşteri<select id="sip-tenant"></select></label><label>SIP kullanıcı adı<input id="sip-username" placeholder="908..." required /></label><label>Gelen numara / DID<input id="sip-did" placeholder="908..." required /></label><label>Proxy / domain<input id="sip-domain" placeholder="sip.verimor.com.tr" required /></label><label>SIP parolası<input id="sip-password" type="password" autocomplete="new-password" placeholder="Değiştirmek için girin" /></label><button class="button secondary" type="submit">SIP ayarlarını kaydet</button><span id="sip-status" class="form-note"></span></form></section>
+        </div>
+      </main>
+    </div>
+    <div class="toast" role="status" aria-live="polite"></div>
+    <script src="app.js?v=20261027-greeting"></script>
+  </body>
+</html>

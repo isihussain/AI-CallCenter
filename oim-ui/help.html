@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Help Center | AI Call Center SaaS</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+      body { padding: 32px; }
+      .help-page { max-width: 920px; margin: auto; }
+      .help-page h1 { margin-bottom: 8px; }
+      .help-page p, .help-page li { color: #657181; line-height: 1.75; }
+      .help-page section { margin: 24px 0; }
+      .back { display: inline-block; margin-bottom: 24px; color: #0d6efd; }
+      @media (max-width: 760px) { body { padding: 16px; } }
+    </style>
+  </head>
+  <body>
+    <main class="help-page">
+      <a class="back" href="/">← Return to the dashboard</a>
+      <h1>Help Center</h1>
+      <p>Configure the service for your organization before connecting real callers.</p>
+      <section>
+        <h2>First setup</h2>
+        <ol>
+          <li>Sign in with the one-time administrator credentials created at first launch.</li>
+          <li>Add a customer account and set its AI greeting, voice, and working hours.</li>
+          <li>Add published knowledge articles in the languages your callers use.</li>
+          <li>Configure OpenAI Realtime and, if needed, Google Calendar and Telegram.</li>
+          <li>Connect an inbound SIP route only after the PBX and webhook have been configured.</li>
+        </ol>
+      </section>
+      <section>
+        <h2>Knowledge base</h2>
+        <p>Use the prompt and language templates in the dashboard to prepare business-specific information. Review prices, hours, booking rules, and cancellation policies before publishing. Only published documents are supplied to the voice agent.</p>
+        <p>Keep each language version aligned. Do not include real caller information in public issue reports.</p>
+      </section>
+      <section>
+        <h2>Integrations</h2>
+        <p>Provider credentials belong in the protected server environment or administrator settings. Never place API keys, SIP passwords, OAuth secrets, call recordings, or customer exports in this repository.</p>
+        <p>Support contact details are set by the operator who deploys this software.</p>
+      </section>
+    </main>
+  </body>
+</html>

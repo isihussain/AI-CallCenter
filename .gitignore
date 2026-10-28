@@ -1,0 +1,32 @@
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+*.secret
+bootstrap-credentials.txt
+
+# Runtime state and recordings
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+recordings/
+*.wav
+*.mp3
+*.log
+
+# Python and editor artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.idea/
+.vscode/
+
+# Archives and temporary deployment bundles
+*.tgz
+*.tar.gz
+*.zip
+tmp/
+temp/
