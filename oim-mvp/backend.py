@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import asyncio, base64, hashlib, hmac, json, math, os, re, secrets, sqlite3, subprocess, threading, time
-import urllib.parse, urllib.request
+import urllib.error, urllib.parse, urllib.request
 from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -115,6 +115,9 @@ def db():
       CREATE TABLE IF NOT EXISTS tenant_retention(tenant_id INTEGER PRIMARY KEY, transcript_retention_days INTEGER, updated_at INTEGER NOT NULL, last_purged_at INTEGER, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
     ''')
     columns={row['name'] for row in conn.execute('PRAGMA table_info(calls)').fetchall()}
+    provider_columns={row['name'] for row in conn.execute('PRAGMA table_info(provider_settings)').fetchall()}
+    for name,definition in [('voice_id',"TEXT NOT NULL DEFAULT ''"),('check_status',"TEXT NOT NULL DEFAULT 'unchecked'"),('checked_at','INTEGER')]:
+        if name not in provider_columns: conn.execute(f'ALTER TABLE provider_settings ADD COLUMN {name} {definition}')
     if 'billed_credits' not in columns: conn.execute('ALTER TABLE calls ADD COLUMN billed_credits REAL NOT NULL DEFAULT 0')
     if 'billed_at' not in columns: conn.execute('ALTER TABLE calls ADD COLUMN billed_at INTEGER')
     if 'failure_code' not in columns: conn.execute("ALTER TABLE calls ADD COLUMN failure_code TEXT NOT NULL DEFAULT ''")
@@ -152,7 +155,44 @@ def public_tenant(row):
 
 def public_provider(row):
     key = reveal(row['api_key'])
-    return {'provider':row['provider'],'model':row['model'],'enabled':bool(row['enabled']),'configured':bool(key),'masked':(('••••' + key[-4:]) if len(key) > 4 else '')}
+    return {'provider':row['provider'],'model':row['model'],'enabled':bool(row['enabled']),'configured':bool(key),'masked':'••••••••' if key else '', 'voice_id':row['voice_id'],'check_status':row['check_status'],'checked_at':row['checked_at']}
+
+PROVIDER_IDS = {'openai','openai_ai','elevenlabs','deepgram'}
+PROVIDER_LIMITS = {}
+PROVIDER_LOCK = threading.Lock()
+
+def provider_request(provider, key, model='', payload=None, voice_id=''):
+    if provider == 'elevenlabs':
+        url='https://api.elevenlabs.io/v1/text-to-speech/'+urllib.parse.quote(voice_id,safe='')+'?output_format=mp3_44100_128' if payload else 'https://api.elevenlabs.io/v1/user'
+        headers={'xi-api-key':key,'Content-Type':'application/json','Accept':'audio/mpeg' if payload else 'application/json'}
+    else:
+        url=('https://api.deepgram.com/v1/projects' if provider=='deepgram' else 'https://api.openai.com/v1/responses' if payload else 'https://api.openai.com/v1/models/'+urllib.parse.quote(model,safe=''))
+        headers={'Authorization':('Token ' if provider=='deepgram' else 'Bearer ')+key,'Content-Type':'application/json'}
+    req=urllib.request.Request(url,data=json.dumps(payload).encode() if payload else None,headers=headers)
+    try:
+        with urllib.request.urlopen(req,timeout=25) as response: body=response.read(3*1024*1024+1)
+        if len(body)>3*1024*1024: raise ValueError('Sağlayıcı yanıtı çok büyük.')
+        return body
+    except urllib.error.HTTPError as error:
+        code=error.code
+        error.close()
+        messages={401:'API anahtarı geçersiz.',403:'Bu anahtarın işlem izni yok.',404:'Model veya ses kimliği bulunamadı.',429:'Sağlayıcı kotası veya istek sınırı aşıldı.'}
+        raise ValueError(messages.get(code,'Sağlayıcı isteği tamamlayamadı.')) from None
+    except (OSError,TimeoutError): raise ValueError('Sağlayıcıya bağlanılamadı. Yeniden deneyin.') from None
+
+def admin_system_flow(conn):
+    key,model=configured_openai()
+    providers={r['provider']:public_provider(r) for r in conn.execute('SELECT * FROM provider_settings')}
+    counts={
+        'tenants':conn.execute('SELECT COUNT(*) FROM tenants WHERE role="customer"').fetchone()[0],
+        'active':conn.execute('SELECT COUNT(*) FROM calls WHERE status IN ("incoming","active")').fetchone()[0],
+        'today':conn.execute('SELECT COUNT(*) FROM calls WHERE started_at>=?',(now()-now()%86400,)).fetchone()[0],
+        'failed':conn.execute('SELECT COUNT(*) FROM calls WHERE status="failed" AND started_at>=?',(now()-86400,)).fetchone()[0],
+        'knowledge':conn.execute('SELECT COUNT(*) FROM knowledge_documents WHERE status="published"').fetchone()[0],
+        'callbacks':conn.execute('SELECT COUNT(*) FROM callback_requests WHERE status="pending"').fetchone()[0],
+        'appointments':conn.execute('SELECT COUNT(*) FROM appointments').fetchone()[0],
+    }
+    return {'updated_at':now(),'counts':counts,'realtime':{'configured':bool(key),'model':model,'source':'saved' if providers.get('openai',{}).get('enabled') and providers.get('openai',{}).get('configured') else 'environment' if key else 'missing'},'providers':list(providers.values()),'phone_voice':'openai','elevenlabs_phone_bridge':False}
 
 def finalize_call(call_id):
     conn=db()
@@ -766,7 +806,13 @@ class Handler(BaseHTTPRequestHandler):
             rows=conn.execute('SELECT * FROM tenants WHERE role="customer" ORDER BY id DESC').fetchall(); return self.send_json({'items':[public_tenant(x) for x in rows]})
         if path == '/api/admin/providers':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
-            rows=conn.execute('SELECT * FROM provider_settings ORDER BY provider').fetchall(); return self.send_json({'items':[public_provider(x) for x in rows]})
+            items={r['provider']:public_provider(r) for r in conn.execute('SELECT * FROM provider_settings ORDER BY provider')}
+            for name in ('openai','openai_ai','elevenlabs'):
+                items.setdefault(name,{'provider':name,'model':'gpt-realtime' if name=='openai' else '', 'enabled':False,'configured':False,'masked':'','voice_id':'','check_status':'unchecked','checked_at':None})
+            return self.send_json({'items':list(items.values())})
+        if path == '/api/admin/system-flow':
+            if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
+            return self.send_json(admin_system_flow(conn))
         if path == '/api/admin/billing':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
             row=conn.execute('SELECT credits_per_minute,ai_multiplier,server_hourly_rate,minimum_credit,updated_at FROM billing_settings WHERE id=1').fetchone()
@@ -954,17 +1000,50 @@ Appointment policy:
             conn.execute('''INSERT INTO tenant_retention(tenant_id,transcript_retention_days,updated_at) VALUES(?,?,?)
                 ON CONFLICT(tenant_id) DO UPDATE SET transcript_retention_days=excluded.transcript_retention_days,updated_at=excluded.updated_at''',(tid,days,now()))
             conn.commit(); return self.send_json({'ok':True,'tenant_id':tid,'transcript_retention_days':days})
-        if path == '/api/admin/providers/test':
+        if path in {'/api/admin/providers/test','/api/admin/providers/preview','/api/admin/ai-playground'}:
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
-            provider=str(data.get('provider','')).strip().lower(); row=conn.execute('SELECT * FROM provider_settings WHERE provider=?',(provider,)).fetchone()
+            provider='openai_ai' if path.endswith('ai-playground') else str(data.get('provider','')).strip().lower()
+            if provider not in PROVIDER_IDS: return self.send_json({'error':'Geçersiz sağlayıcı'},400)
+            if path.endswith('/preview') and provider!='elevenlabs': return self.send_json({'error':'Ses denemesi için ElevenLabs seçin.'},400)
+            row=conn.execute('SELECT * FROM provider_settings WHERE provider=?',(provider,)).fetchone()
             if not row: return self.send_json({'ok':False,'error':'Sağlayıcı tanımlı değil'},404)
-            key=reveal(row['api_key']); urls={'openai':'https://api.openai.com/v1/models','elevenlabs':'https://api.elevenlabs.io/v1/user','deepgram':'https://api.deepgram.com/v1/projects'}
+            key=reveal(row['api_key'])
             if not key: return self.send_json({'ok':False,'error':'API anahtarı tanımlı değil'},400)
-            headers={'Authorization':'Bearer '+key} if provider!='elevenlabs' else {'xi-api-key':key}
+            is_test=path.endswith('/test')
+            if not is_test and not row['enabled']: return self.send_json({'error':'Önce sağlayıcıyı etkinleştirin.'},400)
+            if provider in {'openai','openai_ai'} and not row['model']: return self.send_json({'error':'Model kimliği gerekli.'},400)
+            payload=None
+            if not is_test:
+                if not isinstance(data.get('text'),str): return self.send_json({'error':'Metin gerekli.'},400)
+                text=str(data.get('text','')).strip()
+                limit=500 if provider=='elevenlabs' else 1000
+                if not text or len(text)>limit: return self.send_json({'error':f'Metin 1–{limit} karakter olmalı.'},400)
+                if provider=='elevenlabs':
+                    if not row['voice_id']: return self.send_json({'error':'Ses kimliği gerekli.'},400)
+                    payload={'text':text,'model_id':row['model'] or 'eleven_flash_v2_5'}
+                else: payload={'model':row['model'],'input':text,'max_output_tokens':400,'store':False}
+            with PROVIDER_LOCK:
+                recent=[x for x in PROVIDER_LIMITS.get(s['tenant_id'],[]) if x>now()-60]
+                if len(recent)>=6: return self.send_json({'error':'Bir dakika içinde en fazla 6 deneme yapabilirsiniz.'},429)
+                PROVIDER_LIMITS[s['tenant_id']]=recent+[now()]
             try:
-                req=urllib.request.Request(urls[provider],headers=headers); urllib.request.urlopen(req,timeout=10)
-                return self.send_json({'ok':True,'provider':provider,'message':'Bağlantı başarılı'})
-            except Exception: return self.send_json({'ok':False,'provider':provider,'error':'Sağlayıcı yanıt vermedi'})
+                body=provider_request(provider,key,row['model'],payload,row['voice_id'])
+                if is_test:
+                    conn.execute('UPDATE provider_settings SET check_status="ok",checked_at=? WHERE provider=?',(now(),provider)); conn.commit()
+                    return self.send_json({'ok':True,'provider':provider,'message':'Bağlantı başarılı'})
+                if provider=='elevenlabs':
+                    if not body: raise ValueError('Sağlayıcı ses döndürmedi.')
+                    return self.send_json({'ok':True,'audio':base64.b64encode(body).decode(),'content_type':'audio/mpeg'})
+                result=json.loads(body)
+                if not isinstance(result,dict): raise ValueError('Sağlayıcı yanıtı okunamadı.')
+                output='\n'.join(part.get('text','') for item in result.get('output',[]) if item.get('type')=='message' for part in item.get('content',[]) if part.get('type')=='output_text')
+                if not output: raise ValueError('Sağlayıcı metin döndürmedi.')
+                return self.send_json({'ok':True,'text':output})
+            except (ValueError,OSError,TypeError,AttributeError) as error:
+                if is_test:
+                    conn.execute('UPDATE provider_settings SET check_status="error",checked_at=? WHERE provider=?',(now(),provider)); conn.commit()
+                message=str(error) if isinstance(error,ValueError) and not isinstance(error,json.JSONDecodeError) else 'Sağlayıcı yanıtı okunamadı.'
+                return self.send_json({'ok':False,'error':message},502)
         if path == '/api/admin/tenants':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
             username=data.get('username','').strip(); name=data.get('name','').strip(); email=data.get('email','').strip(); credits=float(data.get('credits',0)); password=data.get('password') or secrets.token_urlsafe(10)
@@ -1014,12 +1093,22 @@ Appointment policy:
             conn.execute('UPDATE tenants SET credits=credits-? WHERE id=?',(amount,tid)); conn.execute('INSERT INTO ledger(tenant_id,amount,kind,reason,meta,created_at) VALUES(?,?,?,?,?,?)',(tid,-amount,'debit',reason,json.dumps(data,ensure_ascii=False),now())); conn.commit(); return self.send_json({'tenant':public_tenant(conn.execute('SELECT * FROM tenants WHERE id=?',(tid,)).fetchone())})
         if path == '/api/admin/providers':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
+            if any(not isinstance(data.get(name,''),str) for name in ('provider','api_key','model','voice_id')): return self.send_json({'error':'Geçersiz bağlantı alanı.'},400)
             provider=str(data.get('provider','')).strip().lower(); api_key=str(data.get('api_key','')); model=str(data.get('model','')).strip(); enabled=1 if data.get('enabled') else 0
-            if provider not in {'openai','elevenlabs','deepgram'}: return self.send_json({'error':'Geçersiz sağlayıcı'},400)
+            if provider not in PROVIDER_IDS: return self.send_json({'error':'Geçersiz sağlayıcı'},400)
+            voice_id=str(data.get('voice_id','')).strip()
+            if model and not re.fullmatch(r'[A-Za-z0-9._:/-]{1,100}',model): return self.send_json({'error':'Model kimliği geçersiz.'},400)
+            if voice_id and not re.fullmatch(r'[A-Za-z0-9_-]{1,128}',voice_id): return self.send_json({'error':'Ses kimliği geçersiz.'},400)
+            if api_key and (len(api_key)>4096 or not all(33<=ord(c)<=126 for c in api_key)): return self.send_json({'error':'API anahtarı geçersiz.'},400)
+            if data.get('enabled',False) not in (True,False,0,1) or not isinstance(data.get('clear_key',False),bool): return self.send_json({'error':'Geçersiz bağlantı durumu.'},400)
+            old=conn.execute('SELECT api_key,voice_id FROM provider_settings WHERE provider=?',(provider,)).fetchone()
+            if old and 'voice_id' not in data: voice_id=old['voice_id']
             if not api_key:
-                old=conn.execute('SELECT api_key FROM provider_settings WHERE provider=?',(provider,)).fetchone()
-                if old: api_key=reveal(old['api_key'])
-            conn.execute('INSERT INTO provider_settings(provider,api_key,model,enabled,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(provider) DO UPDATE SET api_key=excluded.api_key,model=excluded.model,enabled=excluded.enabled,updated_at=excluded.updated_at',(provider,protect(api_key),model,enabled,now()))
+                if old:
+                    api_key=reveal(old['api_key'])
+            if data.get('clear_key'): api_key=''
+            conn.execute('''INSERT INTO provider_settings(provider,api_key,model,enabled,voice_id,updated_at) VALUES(?,?,?,?,?,?)
+                ON CONFLICT(provider) DO UPDATE SET api_key=excluded.api_key,model=excluded.model,enabled=excluded.enabled,voice_id=excluded.voice_id,check_status='unchecked',checked_at=NULL,updated_at=excluded.updated_at''',(provider,protect(api_key),model,enabled,voice_id,now()))
             conn.commit(); return self.send_json({'provider':public_provider(conn.execute('SELECT * FROM provider_settings WHERE provider=?',(provider,)).fetchone())})
         if path == '/api/admin/billing':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)

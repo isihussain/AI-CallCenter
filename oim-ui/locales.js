@@ -2006,6 +2006,344 @@
   Object.assign(catalogs.tr, failureTr);
   Object.assign(catalogs.en, failureEn);
   Object.assign(catalogs.ru, failureRu);
+  const adminMessages = [
+    [
+      "İçerik müşterinin kendi panelinden yönetilir.",
+      "Content is managed from the customer's own panel.",
+      "Контент управляется из панели самого клиента.",
+    ],
+    [
+      "Detay paneli seçili müşteriyi gösterir.",
+      "The detail panel shows the selected customer.",
+      "Подробный раздел показывает выбранного клиента.",
+    ],
+    ["Metin gerekli.", "Text is required.", "Требуется текст."],
+    [
+      "Geçersiz bağlantı alanı.",
+      "Invalid connection field.",
+      "Недействительное поле подключения.",
+    ],
+    ["Kaydet", "Save", "Сохранить"],
+    [
+      "Sunucu ortamındaki anahtar kullanılıyor.",
+      "Using the key configured in the server environment.",
+      "Используется ключ из окружения сервера.",
+    ],
+    ["Sistem akışı", "System flow", "Поток системы"],
+    ["API bağlantıları", "API connections", "API-подключения"],
+    ["OPERASYON MERKEZİ", "OPERATIONS CENTER", "ЦЕНТР УПРАВЛЕНИЯ"],
+    [
+      "Çağrının yolunu, AI bağlantılarını ve bekleyen işleri tek ekranda görün.",
+      "See call routing, AI connections, and pending work in one place.",
+      "Маршрут звонка, AI-подключения и ожидающие задачи на одном экране.",
+    ],
+    [
+      "Tüm müşteriler · günlük sayaçlar UTC",
+      "All customers · daily counters in UTC",
+      "Все клиенты · суточные показатели UTC",
+    ],
+    [
+      "Otomatik yenilemeyi duraklat",
+      "Pause auto refresh",
+      "Приостановить обновление",
+    ],
+    [
+      "Otomatik yenilemeyi sürdür",
+      "Resume auto refresh",
+      "Возобновить обновление",
+    ],
+    ["Liste görünümü", "List view", "Список"],
+    ["Harita görünümü", "Map view", "Карта"],
+    ["Uzaklaştır", "Zoom out", "Уменьшить"],
+    ["Yakınlaştır", "Zoom in", "Увеличить"],
+    ["Sığdır", "Fit", "Вписать"],
+    [
+      "Sistem bağlantı haritası",
+      "System connection map",
+      "Карта подключений системы",
+    ],
+    ["AI VE SES DENEMESİ", "AI & VOICE PREVIEW", "ПРОБА AI И ГОЛОСА"],
+    ["TELEFON AKIŞI", "PHONE FLOW", "ТЕЛЕФОННЫЙ ПОТОК"],
+    ["Seçili bağlantı", "Selected connection", "Выбранное подключение"],
+    ["Bir düğüm seçin.", "Select a node.", "Выберите узел."],
+    [
+      "Hareketli noktalar akış yönünü gösterir. Durumlar kayıtlı ayarlardır; canlı paket izlemesi değildir.",
+      "Moving dots show direction. States describe saved configuration, not live packet traffic.",
+      "Движущиеся точки показывают направление. Статусы отражают настройки, а не передачу пакетов.",
+    ],
+    ["BAĞLANTILAR", "CONNECTIONS", "ПОДКЛЮЧЕНИЯ"],
+    ["Ses ve zeka", "Voice & intelligence", "Голос и интеллект"],
+    [
+      "Her bağlantının anahtarını ve modelini ayrı yönetin. Anahtarlar sunucuda şifrelenir.",
+      "Manage each connection's key and model separately. Keys are encrypted on the server.",
+      "Управляйте ключом и моделью каждого подключения отдельно. Ключи шифруются на сервере.",
+    ],
+    ["Akışı görüntüle", "View flow", "Открыть поток"],
+    [
+      "Telefon sesi şu anda OpenAI Realtime üzerinden yürür. ElevenLabs, aşağıdaki ses denemesinde kullanılır; telefon görüşmesi için ayrıca ses köprüsü gerekir.",
+      "Phone audio currently runs through OpenAI Realtime. ElevenLabs powers the preview below; using it for phone calls requires a separate media bridge.",
+      "Звук звонков сейчас обрабатывает OpenAI Realtime. ElevenLabs используется для пробы ниже; для звонков требуется отдельный аудиомост.",
+    ],
+    ["DENE VE DİNLE", "TRY & LISTEN", "ПОПРОБУЙТЕ И ПОСЛУШАЙТЕ"],
+    [
+      "Metin yazın, OpenAI AI yanıtını oluşturun ve ElevenLabs sesiyle dinleyin. Denemeler sağlayıcı kullanımına yansıyabilir.",
+      "Enter text, generate an OpenAI AI response, and listen with ElevenLabs. Preview requests may incur provider charges.",
+      "Введите текст, создайте ответ OpenAI AI и прослушайте его через ElevenLabs. Пробные запросы могут тарифицироваться провайдером.",
+    ],
+    ["Deneme metni", "Test text", "Пробный текст"],
+    ["AI yanıtı oluştur", "Generate AI response", "Создать ответ AI"],
+    ["Metni seslendir", "Generate speech", "Озвучить текст"],
+    [
+      "Yanıt / seslendirilecek metin",
+      "Response / text to speak",
+      "Ответ / текст для озвучивания",
+    ],
+    [
+      "AI yanıtı burada görünür. Doğrudan metin de yazabilirsiniz.",
+      "The AI response appears here. You can also enter text directly.",
+      "Ответ AI появится здесь. Можно ввести текст вручную.",
+    ],
+    [
+      "API bağlantılarını yönet",
+      "Manage API connections",
+      "Управление API-подключениями",
+    ],
+    [
+      "Telefon görüşmeleri: dinleme, yanıt ve ses.",
+      "Phone calls: listening, responses, and speech.",
+      "Телефонные звонки: распознавание, ответы и речь.",
+    ],
+    [
+      "Panelde metin üretimi ve AI yanıt denemesi.",
+      "Text generation and AI response previews in the panel.",
+      "Генерация текста и проба ответов AI в панели.",
+    ],
+    [
+      "Panelde doğal ses üretimi ve dinleme.",
+      "Natural speech generation and playback in the panel.",
+      "Генерация и прослушивание естественной речи в панели.",
+    ],
+    ["TELEFON", "PHONE", "ТЕЛЕФОН"],
+    ["ZEKA", "INTELLIGENCE", "ИНТЕЛЛЕКТ"],
+    ["SES", "VOICE", "ГОЛОС"],
+    ["Metin denemesi", "Text preview", "Проба текста"],
+    [
+      "Panelde yazdığınız metin OpenAI AI modeline gönderilir.",
+      "Text entered in the panel is sent to the OpenAI AI model.",
+      "Текст из панели отправляется модели OpenAI AI.",
+    ],
+    [
+      "Yanıt Responses API üzerinden üretilir. Telefon ajanından bağımsızdır.",
+      "Responses are generated through the Responses API, separately from the phone agent.",
+      "Ответы создаются через Responses API отдельно от телефонного агента.",
+    ],
+    [
+      "Deneme yanıtı veya yazdığınız metin seçilen ElevenLabs sesiyle okunur.",
+      "The preview response or your text is spoken using the selected ElevenLabs voice.",
+      "Пробный ответ или введённый текст озвучивается выбранным голосом ElevenLabs.",
+    ],
+    ["Gelen çağrı", "Incoming call", "Входящий звонок"],
+    [
+      "Arayan kişi, operatör numarasından SIP hattına ulaşır. Operatör yönlendirmesi bu panelden doğrulanamaz.",
+      "The caller reaches the SIP trunk through the carrier number. Carrier routing cannot be verified from this panel.",
+      "Звонок поступает на SIP-линию через номер оператора. Маршрутизацию оператора нельзя проверить из этой панели.",
+    ],
+    [
+      "Mevcut telefon hattı OpenAI Realtime SIP bağlantısına yönlenir.",
+      "The current phone route leads to the OpenAI Realtime SIP connection.",
+      "Текущий телефонный маршрут ведёт к SIP-подключению OpenAI Realtime.",
+    ],
+    [
+      "Canlı telefon görüşmesini yürütür; bilgi araması, randevu ve geri arama araçlarını çağırabilir.",
+      "Handles phone conversations and can invoke knowledge search, appointment, and callback tools.",
+      "Обрабатывает звонки и может вызывать поиск знаний, запись на приём и запрос обратного звонка.",
+    ],
+    ["Ajan araçları", "Agent tools", "Инструменты агента"],
+    [
+      "Ajan, görüşmenin ihtiyacına göre bilgi arar veya takip işlemi kaydeder.",
+      "The agent searches knowledge or records follow-up actions as needed.",
+      "Агент ищет информацию или сохраняет последующие действия по необходимости.",
+    ],
+    [
+      "Yalnızca ilgili müşterinin yayınlanmış içerikleri aranır.",
+      "Search is limited to the customer's published content.",
+      "Поиск ограничен опубликованными материалами соответствующего клиента.",
+    ],
+    [
+      "Onaylanan randevular ilgili müşteri hesabında saklanır.",
+      "Confirmed appointments are saved in the customer's account.",
+      "Подтверждённые записи сохраняются в аккаунте соответствующего клиента.",
+    ],
+    [
+      "İnsan desteği isteyen arayanlar, daha sonra geri aranmak üzere kuyruğa eklenir.",
+      "Callers requesting human help are added to the callback queue.",
+      "Звонящие, запросившие помощь человека, добавляются в очередь обратного звонка.",
+    ],
+    ["Çağrı kayıtları", "Call records", "Журнал звонков"],
+    [
+      "Çağrı durumu, transkript ve kullanım kaydı geçmişe işlenir. Saklama politikası transkript süresini belirler.",
+      "Call status, transcript, and usage are saved to history. The retention policy controls transcript storage time.",
+      "Статус, транскрипт и использование сохраняются в истории. Политика хранения определяет срок хранения транскрипта.",
+    ],
+    ["Bilinmiyor", "Unknown", "Неизвестно"],
+    ["Yapılandırıldı", "Configured", "Настроено"],
+    ["Anahtar bekliyor", "Awaiting key", "Ожидает ключ"],
+    ["Ses kimliği bekliyor", "Awaiting Voice ID", "Ожидает Voice ID"],
+    ["Bağlantı doğrulandı", "Connection verified", "Подключение проверено"],
+    ["Harici yönlendirme", "External routing", "Внешняя маршрутизация"],
+    ["Uygulama içi", "Application service", "Сервис приложения"],
+    ["BAĞLANTI DETAYI", "CONNECTION DETAILS", "СВЕДЕНИЯ О ПОДКЛЮЧЕНИИ"],
+    ["Kaynak", "Source", "Источник"],
+    ["Hedef", "Destination", "Назначение"],
+    ["İlgili alanı aç", "Open related panel", "Открыть соответствующий раздел"],
+    ["Aktif çağrı", "Active calls", "Активные звонки"],
+    ["Bugünkü çağrı", "Calls today", "Звонки сегодня"],
+    ["Bekleyen geri arama", "Pending callbacks", "Ожидающие обратные звонки"],
+    ["Son 24 saatte hata", "Failures in the last 24h", "Ошибки за 24 часа"],
+    ["Güncellendi", "Updated", "Обновлено"],
+    [
+      "Veriler güncellenemedi. Son görünüm korunuyor.",
+      "Refresh failed. The last snapshot is retained.",
+      "Обновить данные не удалось. Сохранён предыдущий снимок.",
+    ],
+    [
+      "Kayıtlı yardımcı sağlayıcı ayarları.",
+      "Saved auxiliary provider settings.",
+      "Сохранённые настройки вспомогательного провайдера.",
+    ],
+    ["EK BAĞLANTI", "AUXILIARY", "ДОПОЛНИТЕЛЬНО"],
+    ["Anahtar kayıtlı", "Key saved", "Ключ сохранён"],
+    ["Anahtar eklenmedi", "No key added", "Ключ не добавлен"],
+    ["Model kimliği", "Model ID", "ID модели"],
+    [
+      "Sağlayıcınızdaki model kimliği",
+      "Model ID from your provider",
+      "ID модели у провайдера",
+    ],
+    [
+      "Boş bırakırsanız kayıtlı anahtar korunur.",
+      "Leave blank to keep the saved key.",
+      "Оставьте пустым, чтобы сохранить текущий ключ.",
+    ],
+    ["Ses kimliği (Voice ID)", "Voice ID", "Voice ID"],
+    ["Bağlantıyı etkinleştir", "Enable connection", "Включить подключение"],
+    ["Kayıtlı anahtarı sil", "Remove saved key", "Удалить сохранённый ключ"],
+    ["Bağlantıyı kontrol et", "Check connection", "Проверить подключение"],
+    [
+      "Son kontrol başarısız",
+      "Last check failed",
+      "Последняя проверка неудачна",
+    ],
+    ["Henüz doğrulanmadı", "Not yet verified", "Ещё не проверено"],
+    [
+      "Ayarlar kaydedildi. Bağlantıyı kontrol edebilirsiniz.",
+      "Settings saved. You can now check the connection.",
+      "Настройки сохранены. Можно проверить подключение.",
+    ],
+    ["Kontrol ediliyor…", "Checking…", "Проверка…"],
+    ["İşleniyor…", "Processing…", "Обработка…"],
+    [
+      "Yanıt hazır. En fazla 500 karakter seslendirebilirsiniz.",
+      "Response ready. You can generate speech for up to 500 characters.",
+      "Ответ готов. Можно озвучить до 500 символов.",
+    ],
+    [
+      "Ses hazır. Oynat düğmesine basın.",
+      "Audio ready. Press play to listen.",
+      "Аудио готово. Нажмите воспроизведение.",
+    ],
+    [
+      "İstek tamamlanamadı.",
+      "The request could not be completed.",
+      "Не удалось выполнить запрос.",
+    ],
+    [
+      "API anahtarı geçersiz.",
+      "Invalid API key.",
+      "Недействительный API-ключ.",
+    ],
+    [
+      "Bu anahtarın işlem izni yok.",
+      "This key does not have permission for this operation.",
+      "У ключа нет разрешения на эту операцию.",
+    ],
+    [
+      "Model veya ses kimliği bulunamadı.",
+      "Model or Voice ID not found.",
+      "Модель или Voice ID не найдены.",
+    ],
+    [
+      "Sağlayıcı kotası veya istek sınırı aşıldı.",
+      "Provider quota or rate limit exceeded.",
+      "Превышена квота или частота запросов провайдера.",
+    ],
+    [
+      "Sağlayıcı isteği tamamlayamadı.",
+      "The provider could not complete the request.",
+      "Провайдер не смог выполнить запрос.",
+    ],
+    [
+      "Sağlayıcıya bağlanılamadı. Yeniden deneyin.",
+      "Could not connect to the provider. Try again.",
+      "Не удалось подключиться к провайдеру. Повторите попытку.",
+    ],
+    [
+      "Önce sağlayıcıyı etkinleştirin.",
+      "Enable the provider first.",
+      "Сначала включите провайдера.",
+    ],
+    [
+      "Model kimliği gerekli.",
+      "A Model ID is required.",
+      "Требуется ID модели.",
+    ],
+    ["Ses kimliği gerekli.", "A Voice ID is required.", "Требуется Voice ID."],
+    [
+      "Metin 1–500 karakter olmalı.",
+      "Text must contain 1–500 characters.",
+      "Текст должен содержать 1–500 символов.",
+    ],
+    [
+      "Metin 1–1000 karakter olmalı.",
+      "Text must contain 1–1000 characters.",
+      "Текст должен содержать 1–1000 символов.",
+    ],
+    [
+      "Bir dakika içinde en fazla 6 deneme yapabilirsiniz.",
+      "You can make up to 6 preview requests per minute.",
+      "Можно выполнить до 6 пробных запросов в минуту.",
+    ],
+    [
+      "Sağlayıcı ses döndürmedi.",
+      "The provider returned no audio.",
+      "Провайдер не вернул аудио.",
+    ],
+    [
+      "Sağlayıcı metin döndürmedi.",
+      "The provider returned no text.",
+      "Провайдер не вернул текст.",
+    ],
+    [
+      "Sağlayıcı yanıtı okunamadı.",
+      "The provider response could not be read.",
+      "Не удалось прочитать ответ провайдера.",
+    ],
+    [
+      "Model kimliği geçersiz.",
+      "Invalid Model ID.",
+      "Недействительный ID модели.",
+    ],
+    [
+      "Ses kimliği geçersiz.",
+      "Invalid Voice ID.",
+      "Недействительный Voice ID.",
+    ],
+  ];
+  for (const [tr, en, ru] of adminMessages) {
+    catalogs.tr[tr] = tr;
+    catalogs.en[tr] = en;
+    catalogs.ru[tr] = ru;
+  }
   if (typeof module !== "undefined" && module.exports)
     module.exports = catalogs;
   else root.OIM_LOCALES = catalogs;

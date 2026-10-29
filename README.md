@@ -10,7 +10,13 @@ The project is a self-hosted application codebase, not a hosted service. You ope
 
 These screenshots use synthetic accounts and calls in a local demo. The dashboard supports Turkish, English, and Russian; the selected language changes interface text without rewriting a customer's greeting or knowledge.
 
-![English dashboard with full-history usage summaries](docs/images/dashboard-en.jpg)
+![Administrator system flow with separate phone and AI voice-preview routes](docs/images/admin-system-flow.jpg)
+
+![Independent Realtime, OpenAI AI, and ElevenLabs connection cards](docs/images/admin-providers.jpg)
+
+<img src="docs/images/admin-flow-mobile.jpg" alt="Mobile system flow with an accessible node list" width="375">
+
+![English administrator dashboard with the system-flow overview](docs/images/dashboard-en.jpg)
 
 ![English call history with server-side filters and pagination](docs/images/call-history-en.jpg)
 
@@ -169,6 +175,8 @@ The CSV report downloads all matching call pages. It stops if any page fails, ra
 
 ## Readiness, monitoring, reviews, and privacy
 
+Administrators also have an interactive **System flow** dashboard with aggregate call counters, selectable nodes, source/destination details, zoom controls, and a mobile list view. **API connections** provides separate encrypted settings for OpenAI Realtime, OpenAI AI, and ElevenLabs, plus explicit text and voice previews. The current phone route uses OpenAI SIP; ElevenLabs phone audio requires a separate media bridge. See [admin connections and system flow](docs/admin-console.md) for setup, limits, and endpoint details.
+
 The dashboard includes a tenant-scoped setup readiness panel, a greeting preview, active and failed call monitoring, a callback queue, editable call reviews, and usage reports. The greeting preview uses the saved text and optional browser speech; it does not place a telephone test call or verify an operator PBX route. Human follow-up is recorded as a callback request, not a live transfer. Quality indicators use a documented deterministic rubric and show which signals were available.
 
 Customers can configure transcript retention from their dashboard. Configure the daily cleanup timer before relying on a retention policy: see [operations and retention setup](docs/operations.md) and the example [systemd service](deploy/ai-call-center-retention.service.example) and [timer](deploy/ai-call-center-retention.timer.example). Cleanup removes expired transcripts and call-review summaries/notes while preserving billing and call metadata. Recordings stored by an external PBX need a separate retention policy.
@@ -221,6 +229,8 @@ oim-ui/index.html                  Login and dashboard markup
 oim-ui/app.js                      Dashboard behavior and API calls
 oim-ui/call-history.js             Filters, pagination, reviews, quality signals, and reports
 oim-ui/operations.js               Readiness, monitoring, callbacks, usage, and retention panels
+oim-ui/admin-console.js            Admin provider forms, AI/voice previews, and system-flow map
+oim-ui/admin-console.css           Responsive admin connection and workflow styling
 oim-ui/i18n.js                     Browser language selection and text bindings
 oim-ui/locales.js                  Turkish, English, and Russian message catalog
 oim-ui/tests/                      Dashboard regression tests

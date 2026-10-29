@@ -58,12 +58,16 @@ def main():
             assert uid == "10001", f"Unexpected API user: {uid}"
             with opener.open(base+"/", timeout=10) as response:
                 assert b"AI Call Center" in response.read()
+            for path, marker in (("/admin-console.js", b"AdminConsole"), ("/admin-console.css", b".flow-panel")):
+                with opener.open(base+path, timeout=10) as response:
+                    assert marker in response.read(), f"Missing admin asset: {path}"
+            assert request("/api/admin/system-flow")["counts"]["tenants"] == 1
             compose("up", "-d", "--force-recreate", "--wait", "--wait-timeout", "120", "api", "web")
             opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), urllib.request.HTTPCookieProcessor(CookieJar()))
             login()
             assert any(x["id"] == tenant["id"] for x in request("/api/admin/tenants")["items"])
             provider = next(x for x in request("/api/admin/providers")["items"] if x["provider"] == "openai")
-            assert provider["configured"] and provider["masked"].endswith("alue"), "Encryption key or settings did not persist"
+            assert provider["configured"] and provider["masked"] == "••••••••", "Encryption key/settings did not persist or the mask exposed key characters"
             print("PASS: HTTPS, same-origin UI/API, secure login, non-root API, account and encryption-key persistence.")
         finally:
             # This randomly named test project owns all volumes removed here.
