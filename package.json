@@ -7,7 +7,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "test": "node --test oim-ui/tests/*.test.cjs",
-    "format": "prettier --write oim-ui/app.js oim-ui/call-history.js oim-ui/i18n.js oim-ui/locales.js oim-ui/index.html oim-ui/styles.css"
+    "format": "prettier --write oim-ui/app.js oim-ui/call-history.js oim-ui/operations.js oim-ui/i18n.js oim-ui/locales.js oim-ui/index.html oim-ui/styles.css"
   },
   "devDependencies": {
     "acorn": "8.15.0",

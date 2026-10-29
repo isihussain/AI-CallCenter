@@ -1,11 +1,14 @@
 """HTTP integration checks using temporary storage and synthetic customer data."""
 import http.client
+import asyncio
 from contextlib import closing
 import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import sys
 import threading
+import types
 import unittest
 from unittest.mock import patch
 
@@ -83,7 +86,7 @@ class ApiTestCase(unittest.TestCase):
 
 class TenantIsolationTests(ApiTestCase):
     def test_protected_endpoints_require_a_session(self):
-        for path in ("/api/me", "/api/calls", "/api/appointments", "/api/contacts", "/api/knowledge", "/api/tenant/ai-settings", "/api/admin/tenants"):
+        for path in ("/api/me", "/api/calls", "/api/appointments", "/api/contacts", "/api/knowledge", "/api/tenant/ai-settings", "/api/readiness", "/api/live-calls", "/api/usage-report", "/api/callbacks", "/api/privacy", "/api/admin/tenants"):
             with self.subTest(path=path):
                 self.assertEqual(self.request("GET", path, tenant=None)[0], 401)
         self.assertEqual(self.request("POST", "/api/tenant/ai-settings", {"greeting":"Test"}, tenant=None)[0], 401)
@@ -239,6 +242,139 @@ class CallHistoryTests(ApiTestCase):
         self.assertEqual(self.get("/api/calls?tenant_id=3")["summary"]["total_calls"], 123)
         self.assertEqual(self.get("/api/calls?tenant_id=3", 1)["summary"]["total_calls"], 1)
         self.assertEqual(self.get("/api/calls", 1)["items"], [])
+
+
+class OperationsFeatureTests(ApiTestCase):
+    def test_readiness_is_tenant_scoped_and_never_returns_credentials(self):
+        with closing(backend.db()) as conn, conn:
+            conn.execute("INSERT INTO tenant_sip(tenant_id,username,did,domain,password,updated_at) VALUES(2,'sip-user','100','sip.example.test',?,100)", (backend.protect("synthetic-sip-secret"),))
+            conn.execute("INSERT INTO provider_settings(provider,api_key,model,enabled,updated_at) VALUES('openai',?,'gpt-realtime',1,100)", (backend.protect("synthetic-provider-secret"),))
+        with patch.dict(backend.os.environ, {"OPENAI_API_KEY":""}):
+            customer = self.get("/api/readiness?tenant_id=3", 2)
+            admin = self.get("/api/readiness?tenant_id=2", 1)
+        self.assertEqual(customer["tenant_id"], 2)
+        self.assertEqual([item["key"] for item in admin["checks"]], ["sip", "provider", "greeting", "knowledge"])
+        self.assertTrue(admin["checks"][0]["ready"])
+        self.assertTrue(admin["checks"][1]["ready"])
+        self.assertEqual(admin["pbx_route"], "unverified")
+        serialized = json.dumps(admin)
+        self.assertNotIn("synthetic-sip-secret", serialized)
+        self.assertNotIn("synthetic-provider-secret", serialized)
+
+    def test_usage_report_has_inclusive_utc_dates_and_separates_estimates(self):
+        start = int(backend.datetime(2026, 10, 29, tzinfo=backend.timezone.utc).timestamp())
+        with closing(backend.db()) as conn, conn:
+            for tenant_id, call_id, started in ((2,"usage-2-a",start),(2,"usage-2-b",start+86400),(3,"usage-3-a",start)):
+                conn.execute("INSERT INTO calls(tenant_id,call_id,status,started_at,ended_at,billed_credits) VALUES(?,?,'ended',?,?,0.5)",(tenant_id,call_id,started,started+60))
+            conn.execute("INSERT INTO call_usage(call_id,total_tokens,estimated_openai_usd,updated_at) VALUES('usage-2-a',100,0.0125,?)",(start,))
+        query="/api/usage-report?date_from=2026-10-29&date_to=2026-10-30"
+        customer=self.get(query,2)
+        self.assertEqual(sum(row["calls"] for row in customer["daily"]),2)
+        self.assertEqual(customer["daily"][0]["estimated_openai_usd"],0.0125)
+        self.assertIsNone(customer["daily"][1]["estimated_openai_usd"])
+        self.assertEqual({row["tenant_id"] for row in customer["tenants"]},{2})
+        admin=self.get(query,1)
+        self.assertEqual({row["tenant_id"] for row in admin["tenants"]},{2,3})
+        self.assertEqual(self.request("GET","/api/usage-report?date_from=2026-10-01&date_to=2027-01-02",tenant=2)[0],400)
+        self.assertEqual(self.request("GET","/api/usage-report?date_from=2026-11-01&date_to=2026-10-01",tenant=2)[0],400)
+
+    def test_callback_requests_are_idempotent_and_tenant_isolated(self):
+        with closing(backend.db()) as conn, conn:
+            conn.execute("INSERT INTO calls(tenant_id,call_id,status,started_at) VALUES(2,'callback-2','active',?)",(backend.now(),))
+            conn.execute("INSERT INTO calls(tenant_id,call_id,status,started_at) VALUES(3,'callback-3','active',?)",(backend.now(),))
+        first=backend.save_callback_request(2,"callback-2",{"phone":"+1 (555) 123-4567","reason":"Billing question"})
+        duplicate=backend.save_callback_request(2,"callback-2",{"phone":"+1 (555) 987-6543"})
+        other=backend.save_callback_request(3,"callback-3",{"phone":"+1 555 222 3333"})
+        self.assertFalse(first["duplicate"])
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(first["request_id"],duplicate["request_id"])
+        self.assertEqual(len(self.get("/api/callbacks",2)["items"]),1)
+        self.assertEqual(self.request("POST",f"/api/callbacks/{other['request_id']}/complete",{"tenant_id":3},2)[0],404)
+        self.assertEqual(self.request("POST",f"/api/callbacks/{first['request_id']}/complete",{},2)[0],200)
+        self.assertEqual(self.get("/api/callbacks",2)["items"][0]["status"],"completed")
+        with self.assertRaises(ValueError): backend.save_callback_request(2,"callback-2",{"phone":"12"})
+
+    def test_realtime_callback_tool_persists_before_confirmation_output(self):
+        with closing(backend.db()) as conn, conn:
+            conn.execute("INSERT INTO calls(tenant_id,call_id,status,started_at) VALUES(2,'realtime-callback','active',?)",(backend.now(),))
+        sent=[]
+        events=iter([
+            {"type":"response.function_call_arguments.done","name":"request_human_callback","call_id":"function-call-1","arguments":json.dumps({"phone":"+1 555 111 2222","reason":"Need billing help"})},
+            {"type":"realtime.call.ended"},
+        ])
+        class Socket:
+            async def __aenter__(self): return self
+            async def __aexit__(self,*args): return None
+            async def send(self,message): sent.append(json.loads(message))
+            def __aiter__(self): return self
+            async def __anext__(self):
+                try: return json.dumps(next(events))
+                except StopIteration: raise StopAsyncIteration
+        socket=Socket()
+        fake_websockets=types.SimpleNamespace(connect=lambda *args,**kwargs:socket,ConnectionClosed=type("ConnectionClosed",(Exception,),{}))
+        with patch.dict(sys.modules,{"websockets":fake_websockets}), patch.object(backend,"configured_openai",return_value=("synthetic-key","gpt-realtime")), patch("builtins.print"):
+            asyncio.run(backend.realtime_sideband("realtime-callback",2))
+        outputs=[item for item in sent if (item.get("item") or {}).get("type")=="function_call_output"]
+        self.assertEqual(len(outputs),1)
+        saved=json.loads(outputs[0]["item"]["output"])
+        self.assertTrue(saved["ok"])
+        self.assertIn("saved",saved["message"])
+        with closing(backend.db()) as conn:
+            row=conn.execute("SELECT tenant_id,phone,reason FROM callback_requests WHERE call_id='realtime-callback'").fetchone()
+        self.assertEqual(row["tenant_id"],2)
+        self.assertEqual(row["phone"],"+1 555 111 2222")
+        self.assertEqual(row["reason"],"Need billing help")
+
+    def test_call_reviews_validate_access_and_quality_reasons(self):
+        with closing(backend.db()) as conn, conn:
+            conn.execute("UPDATE calls SET transcript=? WHERE tenant_id=2 AND call_id='call-2'",("\nMüşteri: İade hakkında soru\nAI: Size yardımcı oldum",))
+        payload={"call_id":"call-2","outcome":"resolved","summary":"Caller asked about a refund.","notes":"Followed up with the policy."}
+        self.assertEqual(self.request("POST","/api/call-review",{**payload,"tenant_id":3})[0],200)
+        result=self.get("/api/calls")
+        reviewed=next(item for item in result["items"] if item["call_id"]=="call-2")
+        self.assertEqual(reviewed["review_summary"],payload["summary"])
+        self.assertEqual(reviewed["quality_score"],100)
+        self.assertEqual(self.request("POST","/api/call-review",{**payload,"call_id":"call-3"})[0],404)
+        self.assertEqual(self.request("POST","/api/call-review",{**payload,"outcome":"invented"})[0],400)
+        self.assertEqual(self.request("POST","/api/call-review",{**payload,"summary":"x"*2001})[0],400)
+
+    def test_transcript_cleanup_is_idempotent_and_preserves_call_billing(self):
+        timestamp=2_000_000_000
+        old=timestamp-31*86400
+        with closing(backend.db()) as conn, conn:
+            conn.execute("INSERT INTO tenant_retention(tenant_id,transcript_retention_days,updated_at) VALUES(2,30,?)",(timestamp,))
+            conn.execute("INSERT INTO calls(tenant_id,call_id,status,transcript,started_at,ended_at,billed_credits,billed_at) VALUES(2,'expired-2','ended','private transcript',?,?,1.25,?)",(old,old+60,timestamp))
+            conn.execute("INSERT INTO calls(tenant_id,call_id,status,transcript,started_at,ended_at,billed_credits,billed_at) VALUES(3,'expired-3','ended','keep this transcript',?,?,0.5,?)",(old,old+60,timestamp))
+            conn.execute("INSERT INTO call_reviews(call_id,tenant_id,outcome,summary,notes,updated_at) VALUES('expired-2',2,'resolved','private summary','private note',?)",(timestamp,))
+            conn.execute("INSERT INTO ledger(tenant_id,amount,kind,reason,created_at) VALUES(2,-1.25,'debit','Synthetic usage',?)",(timestamp,))
+        self.assertEqual(backend.purge_expired_transcripts(timestamp),[{"tenant_id":2,"purged_calls":1}])
+        self.assertEqual(backend.purge_expired_transcripts(timestamp),[{"tenant_id":2,"purged_calls":0}])
+        with closing(backend.db()) as conn:
+            self.assertEqual(conn.execute("SELECT transcript,billed_credits,status FROM calls WHERE call_id='expired-2'").fetchone()[:],("",1.25,"ended"))
+            self.assertEqual(conn.execute("SELECT summary,notes FROM call_reviews WHERE call_id='expired-2'").fetchone()[:],("",""))
+            self.assertEqual(conn.execute("SELECT transcript FROM calls WHERE call_id='expired-3'").fetchone()[0],"keep this transcript")
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM ledger WHERE tenant_id=2").fetchone()[0],1)
+            self.assertEqual(conn.execute("SELECT last_purged_at FROM tenant_retention WHERE tenant_id=2").fetchone()[0],timestamp)
+
+    def test_retention_setting_cannot_be_redirected_to_another_tenant(self):
+        status, saved, _ = self.request("POST","/api/privacy",{"tenant_id":3,"transcript_retention_days":90},2)
+        self.assertEqual(status,200)
+        self.assertEqual(saved["tenant_id"],2)
+        self.assertEqual(self.get("/api/privacy?tenant_id=3",2)["transcript_retention_days"],90)
+        self.assertIsNone(self.get("/api/privacy",3)["transcript_retention_days"])
+        self.assertEqual(self.request("POST","/api/privacy",{"transcript_retention_days":0},2)[0],400)
+        self.assertEqual(self.request("POST","/api/privacy",{"transcript_retention_days":3651},2)[0],400)
+
+    def test_failure_reason_is_safe_and_failed_state_survives_finalization(self):
+        with closing(backend.db()) as conn, conn:
+            conn.execute("INSERT INTO calls(tenant_id,call_id,status,started_at) VALUES(2,'failed-call','active',?)",(backend.now(),))
+        backend.record_call_failure("failed-call","provider_error")
+        backend.save_call_event("failed-call","active","\nAI: later event")
+        with closing(backend.db()) as conn:
+            call=conn.execute("SELECT status,failure_code,failure_message FROM calls WHERE call_id='failed-call'").fetchone()
+        self.assertEqual(call["status"],"failed")
+        self.assertEqual(call["failure_code"],"provider_error")
+        self.assertNotIn("api.openai.com",call["failure_message"])
 
 
 if __name__ == "__main__":

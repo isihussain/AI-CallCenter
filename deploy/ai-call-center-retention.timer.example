@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily AI Call Center transcript retention cleanup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+Unit=ai-call-center-retention.service
+
+[Install]
+WantedBy=timers.target

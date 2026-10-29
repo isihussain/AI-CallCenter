@@ -14,7 +14,7 @@ test("table pages do not truncate dashboard totals and exports collect all pages
   const env=environment(html,"en",async url=>{requests.push(url);return {ok:true,json:async()=>fixture(url)};});
   env.run("call-history.js");
   await env.window.CallHistory.setContext({tenantId:2,role:"admin",tenantName:"Demo Studio",balance:50});
-  assert.equal(env.document.querySelectorAll("#calls tbody tr").length,25);
+  assert.equal([...env.document.querySelectorAll("#calls tbody tr")].filter(row=>!row.className.includes("call-review-row")).length,25);
   assert.equal(env.document.querySelector("#metric-calls").textContent,"123");
   assert.match(env.document.querySelector("#call-page-info").textContent,/1 \/ 5/);
   env.document.querySelector("#call-next").dispatchEvent(new env.window.Event("click"));
@@ -61,5 +61,37 @@ test("changing locale redraws call controls without changing filter values",asyn
   assert.equal(caller.value,"keep-user-input");
   assert.match(env.document.querySelector("#call-page-info").textContent,/Страница/);
   assert.match(env.document.querySelector("#call-status").textContent,/UTC/);
+});
+test("call review opens accessibly and saves an editable local transcript draft",async()=>{
+  const writes=[];
+  const env=environment(html,"en",async(url,options={})=>{
+    if(options.method==="POST"){
+      writes.push(JSON.parse(options.body));
+      return {ok:true,json:async()=>({ok:true})};
+    }
+    const data=fixture(url,1);
+    data.items[0].transcript="\nMüşteri: I need to ask about a refund\nAI: I can explain the policy";
+    data.items[0].quality_score=100;
+    data.items[0].quality_coverage=3;
+    data.items[0].quality_signals=[{key:"completed",value:true},{key:"assistant_responded",value:true},{key:"knowledge_helpful",value:null},{key:"follow_up_recorded",value:true}];
+    return {ok:true,json:async()=>data};
+  });
+  env.run("call-history.js");
+  await env.window.CallHistory.setContext({tenantId:2,role:"customer",tenantName:"Demo",balance:12});
+  const toggle=env.document.querySelector(".call-review-toggle");
+  assert.equal(toggle.getAttribute("aria-expanded"),"false");
+  toggle.dispatchEvent(new env.window.Event("click"));
+  assert.equal(toggle.getAttribute("aria-expanded"),"true");
+  const detail=env.document.querySelector(".call-review-row");
+  const draft=detail.querySelector("button[type=button]");
+  draft.dispatchEvent(new env.window.Event("click"));
+  const summary=detail.querySelector("textarea");
+  assert.match(summary.value,/I need to ask about a refund/);
+  detail.querySelector("form").dispatchEvent(new env.window.Event("submit"));
+  await flush();await flush();
+  assert.equal(writes.length,1);
+  assert.equal(writes[0].call_id,"demo-0");
+  assert.match(writes[0].summary,/I need to ask about a refund/);
+  assert.match(env.document.querySelector("#calls tbody").textContent,/100%/);
 });
 

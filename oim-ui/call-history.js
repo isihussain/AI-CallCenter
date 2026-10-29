@@ -67,6 +67,165 @@
     td.textContent = value;
     return td;
   }
+  function summaryDraft(transcript) {
+    const customer = [],
+      assistant = [];
+    for (const line of String(transcript || "").split(/\r?\n/)) {
+      const caller = line.match(/^\s*(?:Müşteri|Caller|Customer)\s*:\s*(.+)$/i);
+      const reply = line.match(/^\s*(?:AI|Assistant)\s*:\s*(.+)$/i);
+      if (caller?.[1]?.trim().length > 2) customer.push(caller[1].trim());
+      if (reply?.[1]?.trim().length > 2) assistant.push(reply[1].trim());
+    }
+    return [...customer.slice(0, 2), ...assistant.slice(-1)]
+      .map((line) => `• ${line.slice(0, 240)}`)
+      .join("\n")
+      .slice(0, 1000);
+  }
+  function reviewRow(call) {
+    const row = document.createElement("tr");
+    row.className = "call-review-row";
+    row.hidden = true;
+    const cell = document.createElement("td");
+    cell.colSpan = 8;
+    const formReview = document.createElement("form");
+    formReview.className = "call-review-form";
+    const outcomeLabel = document.createElement("label");
+    outcomeLabel.textContent = t("Sonuç");
+    const outcome = document.createElement("select");
+    outcome.setAttribute("aria-label", t("Sonuç"));
+    const choices = [
+      ["", "Henüz değerlendirilmedi"],
+      ["resolved", "Çözüldü"],
+      ["appointment_booked", "Randevu oluşturuldu"],
+      ["callback_needed", "Geri arama gerekli"],
+      ["unresolved", "Çözülemedi"],
+    ];
+    for (const [value, label] of choices) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = t(label);
+      outcome.append(option);
+    }
+    outcome.value = call.review_outcome || "";
+    outcomeLabel.append(outcome);
+    const summaryLabel = document.createElement("label");
+    summaryLabel.textContent = t("Özet (düzenlenebilir yerel taslak)");
+    const summary = document.createElement("textarea");
+    summary.rows = 3;
+    summary.maxLength = 2000;
+    summary.value = call.review_summary || "";
+    summary.setAttribute("aria-label", t("Çağrı özeti"));
+    summaryLabel.append(summary);
+    const notesLabel = document.createElement("label");
+    notesLabel.textContent = t("Ekip notu");
+    const notes = document.createElement("textarea");
+    notes.rows = 3;
+    notes.maxLength = 2000;
+    notes.value = call.review_notes || "";
+    notes.setAttribute("aria-label", t("Ekip notu"));
+    notesLabel.append(notes);
+    const actions = document.createElement("div");
+    actions.className = "call-review-actions";
+    const draft = document.createElement("button");
+    draft.type = "button";
+    draft.className = "button outline";
+    draft.textContent = t("Transkriptten taslak oluştur");
+    const save = document.createElement("button");
+    save.type = "submit";
+    save.className = "button primary";
+    save.textContent = t("İncelemeyi kaydet");
+    const message = document.createElement("span");
+    message.className = "form-note";
+    message.setAttribute("role", "status");
+    message.setAttribute("aria-live", "polite");
+    draft.addEventListener("click", () => {
+      if (!call.transcript) {
+        message.textContent = t(
+          "Transkript bulunmuyor. Elle özet yazabilirsiniz.",
+        );
+        return;
+      }
+      if (!summary.value) summary.value = summaryDraft(call.transcript);
+      message.textContent = t(
+        "Yerel taslak hazır. Kaydetmeden önce düzenleyebilirsiniz.",
+      );
+    });
+    formReview.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      save.disabled = true;
+      message.textContent = t("Kaydediliyor…");
+      try {
+        const response = await fetch("/api/call-review", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            call_id: call.call_id,
+            tenant_id: context?.role === "admin" ? context.tenantId : undefined,
+            outcome: outcome.value,
+            summary: summary.value,
+            notes: notes.value,
+          }),
+        });
+        const body = await response.json();
+        if (!response.ok)
+          throw Error(body.error || t("İnceleme kaydedilemedi."));
+        message.textContent = t("İnceleme kaydedildi.");
+        await load();
+      } catch (error) {
+        message.textContent = error.message;
+      } finally {
+        save.disabled = false;
+      }
+    });
+    actions.append(draft, save);
+    formReview.append(outcomeLabel, summaryLabel, notesLabel, actions, message);
+    cell.append(formReview);
+    row.append(cell);
+    return row;
+  }
+  function qualityCell(call) {
+    const td = document.createElement("td");
+    const details = document.createElement("details");
+    details.className = "quality-details";
+    const summary = document.createElement("summary");
+    summary.className =
+      "pill " +
+      (call.quality_score == null
+        ? "neutral"
+        : call.quality_score < 60
+          ? "warning"
+          : "success");
+    summary.textContent =
+      call.quality_score == null
+        ? t("Yetersiz veri")
+        : `${call.quality_score}%`;
+    const list = document.createElement("ul");
+    const labelsBySignal = {
+      completed: "Çağrı tamamlandı",
+      assistant_responded: "AI yanıt verdi",
+      knowledge_helpful: "Bilgi bankası sonuç verdi",
+      follow_up_recorded: "Sonuç veya takip kaydedildi",
+    };
+    for (const signal of call.quality_signals || []) {
+      const item = document.createElement("li");
+      const value =
+        signal.value == null
+          ? t("Bilinmiyor")
+          : signal.value
+            ? t("Evet")
+            : t("Hayır");
+      item.textContent = `${t(labelsBySignal[signal.key] || signal.key)}: ${value}`;
+      list.append(item);
+    }
+    const coverage = document.createElement("small");
+    coverage.textContent = t("Bilinen göstergeler: {0}/4", {
+      0: call.quality_coverage || 0,
+    });
+    details.append(summary, list, coverage);
+    td.append(details);
+    return td;
+  }
   function render() {
     if (!result) return;
     tbody.replaceChildren();
@@ -109,13 +268,26 @@
       badge.textContent = t(labels[call.status] || call.status);
       badge.dataset.i18n = labels[call.status] || call.status;
       state.append(badge);
-      row.append(state);
+      const reviewButton = document.createElement("button");
+      reviewButton.type = "button";
+      reviewButton.className = "button outline call-review-toggle";
+      reviewButton.textContent = t("İncele");
+      reviewButton.setAttribute("aria-expanded", "false");
+      const expanded = reviewRow(call);
+      reviewButton.addEventListener("click", () => {
+        expanded.hidden = !expanded.hidden;
+        reviewButton.setAttribute("aria-expanded", String(!expanded.hidden));
+      });
+      const reviewCell = cell("");
+      reviewCell.append(reviewButton);
+      row.append(state, qualityCell(call), reviewCell);
       tbody.append(row);
+      tbody.append(expanded);
     }
     if (!result.items.length) {
       const row = document.createElement("tr"),
         td = cell(t("Bu filtrelere uygun çağrı yok."));
-      td.colSpan = 6;
+      td.colSpan = 8;
       row.append(td);
       tbody.append(row);
     }
@@ -193,7 +365,7 @@
       tbody.replaceChildren();
       const row = document.createElement("tr"),
         td = cell(t("Çağrılar yüklenemedi."));
-      td.colSpan = 6;
+      td.colSpan = 8;
       row.append(td);
       tbody.append(row);
       status.textContent = error.message || t("Çağrılar yüklenemedi.");
@@ -287,4 +459,3 @@
     render,
   };
 })(window);
-

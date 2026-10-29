@@ -1565,8 +1565,448 @@
       Sayfa: "Раздел",
     },
   };
+  Object.assign(catalogs.tr, {
+    "{0}–{1} UTC · {2} çağrı · Tahmin yalnızca ölçüm kaydı bulunan çağrıları kapsar.":
+      "{0}–{1} UTC · {2} çağrı · Tahmin yalnızca ölçüm kaydı bulunan çağrıları kapsar.",
+    "{0}/{1} hazır": "{0}/{1} hazır",
+    "{0} geri arama isteği yüklendi.": "{0} geri arama isteği yüklendi.",
+    "AI asistanın kaydettiği ve ekip tarafından sonuçlandırılacak talepler.":
+      "AI asistanın kaydettiği ve ekip tarafından sonuçlandırılacak talepler.",
+    "AI sağlayıcı anahtarı": "AI sağlayıcı anahtarı",
+    "Aktif çağrı yok.": "Aktif çağrı yok.",
+    "Aktif çağrılar": "Aktif çağrılar",
+    Başlangıç: "Başlangıç",
+    "Bağlantı kurulamadı.": "Bağlantı kurulamadı.",
+    "Başarısız bağlantı kaydı bulunmuyor.":
+      "Başarısız bağlantı kaydı bulunmuyor.",
+    Bekliyor: "Bekliyor",
+    "Bu ön izleme kayıtlı metni gösterir. Gerçek telefon araması veya PBX bağlantı testi yapmaz.":
+      "Bu ön izleme kayıtlı metni gösterir. Gerçek telefon araması veya PBX bağlantı testi yapmaz.",
+    "Canlı çağrı izleme": "Canlı çağrı izleme",
+    "Canlı izleme": "Canlı izleme",
+    Çağrı: "Çağrı",
+    "Credits billed": "Credits billed",
+    "CSV indir": "CSV indir",
+    "Date (UTC)": "Date (UTC)",
+    "Estimated OpenAI USD": "Estimated OpenAI USD",
+    "Geri arama istekleri": "Geri arama istekleri",
+    "Geri arama isteği yok.": "Geri arama isteği yok.",
+    "Geri arama tamamlandı olarak kaydedildi.":
+      "Geri arama tamamlandı olarak kaydedildi.",
+    "Geri aramalar": "Geri aramalar",
+    "Günlük kullanım": "Günlük kullanım",
+    "Harici PBX kayıtları bu ayardan etkilenmez. Temizlik için sunucuda zamanlanmış görev gerekir; kurulum adımları README’de bulunur.":
+      "Harici PBX kayıtları bu ayardan etkilenmez. Temizlik için sunucuda zamanlanmış görev gerekir; kurulum adımları README’de bulunur.",
+    Hazır: "Hazır",
+    "Henüz açılış mesajı kaydedilmedi.": "Henüz açılış mesajı kaydedilmedi.",
+    "Henüz zamanlanmış temizlik çalışmadı.":
+      "Henüz zamanlanmış temizlik çalışmadı.",
+    "İstek tamamlanamadı.": "İstek tamamlanamadı.",
+    "İstekler yükleniyor…": "İstekler yükleniyor…",
+    "Kullanım raporu": "Kullanım raporu",
+    "Müşteri kırılımı": "Müşteri kırılımı",
+    "Ölçüm kaydı olmayan çağrılarda sağlayıcı maliyeti hesaplanamaz.":
+      "Ölçüm kaydı olmayan çağrılarda sağlayıcı maliyeti hesaplanamaz.",
+    "Ölçüm yok": "Ölçüm yok",
+    "Raporu getir": "Raporu getir",
+    "Saklama ayarı kaydedildi.": "Saklama ayarı kaydedildi.",
+    "Saklama ayarını kaydet": "Saklama ayarını kaydet",
+    "Saklama süresi": "Saklama süresi",
+    "SIP hesabı bilgileri": "SIP hesabı bilgileri",
+    "Son güncelleme: {0}": "Son güncelleme: {0}",
+    "Son hata yok.": "Son hata yok.",
+    "Son hatalar": "Son hatalar",
+    "Son temizlik: {0}": "Son temizlik: {0}",
+    "Süre dolunca sistem transkripti ve çağrı inceleme notlarını otomatik temizler.":
+      "Süre dolunca sistem transkripti ve çağrı inceleme notlarını otomatik temizler.",
+    "Süre dolunca transkript, özet ve notların silineceğini anlıyorum.":
+      "Süre dolunca transkript, özet ve notların silineceğini anlıyorum.",
+    "Süre sınırı yok (mevcut davranış)": "Süre sınırı yok (mevcut davranış)",
+    "Tarayıcıda sesli dinle": "Tarayıcıda sesli dinle",
+    "Tarayıcıda sesli ön izleme desteklenmiyor.":
+      "Tarayıcıda sesli ön izleme desteklenmiyor.",
+    "Tamamlandı olarak işaretle": "Tamamlandı olarak işaretle",
+    "Tahmini OpenAI maliyeti yalnızca ölçüm kaydı olan çağrılar içindir.":
+      "Tahmini OpenAI maliyeti yalnızca ölçüm kaydı olan çağrılar içindir.",
+    "Tüm müşteriler": "Tüm müşteriler",
+    "Veri saklama": "Veri saklama",
+    "Veri yok": "Veri yok",
+    "Yayınlanmış bilgi bankası": "Yayınlanmış bilgi bankası",
+    "Yeni gelen çağrılar burada görünür.":
+      "Yeni gelen çağrılar burada görünür.",
+    Yenile: "Yenile",
+    "Yalnızca yönetici görünümü.": "Yalnızca yönetici görünümü.",
+    "Transkript saklama süresi": "Transkript saklama süresi",
+    OPERASYON: "OPERASYON",
+    TAKİP: "TAKİP",
+    "VERİ KONTROLÜ": "VERİ KONTROLÜ",
+    Müşteri: "Müşteri",
+    "TARİH (UTC)": "TARİH (UTC)",
+    ÇAĞRI: "ÇAĞRI",
+    "KULLANILAN KREDİ": "KULLANILAN KREDİ",
+    "OPENAI TAHMİNİ (USD)": "OPENAI TAHMİNİ (USD)",
+    TOKEN: "TOKEN",
+    TARİH: "TARİH",
+    TELEFON: "TELEFON",
+    NEDEN: "NEDEN",
+    DURUM: "DURUM",
+    İŞLEM: "İŞLEM",
+  });
+  Object.assign(catalogs.en, {
+    "{0}–{1} UTC · {2} çağrı · Tahmin yalnızca ölçüm kaydı bulunan çağrıları kapsar.":
+      "{0}–{1} UTC · {2} calls · Estimates include calls with recorded usage only.",
+    "{0}/{1} hazır": "{0}/{1} ready",
+    "{0} geri arama isteği yüklendi.": "Loaded {0} callback requests.",
+    "AI asistanın kaydettiği ve ekip tarafından sonuçlandırılacak talepler.":
+      "Requests saved by the AI assistant for your team to complete.",
+    "AI sağlayıcı anahtarı": "AI provider key",
+    "Aktif çağrı yok.": "No active calls.",
+    "Aktif çağrılar": "Active calls",
+    Başlangıç: "Started",
+    "Bağlantı kurulamadı.": "Connection could not be established.",
+    "Başarısız bağlantı kaydı bulunmuyor.":
+      "No failed connections are recorded.",
+    Bekliyor: "Pending",
+    "Bu ön izleme kayıtlı metni gösterir. Gerçek telefon araması veya PBX bağlantı testi yapmaz.":
+      "This preview shows the saved text. It does not place a real phone call or test the PBX route.",
+    "Canlı çağrı izleme": "Live call monitoring",
+    "Canlı izleme": "Live monitoring",
+    Çağrı: "Call",
+    "Credits billed": "Credits billed",
+    "CSV indir": "Download CSV",
+    "Date (UTC)": "Date (UTC)",
+    "Estimated OpenAI USD": "Estimated OpenAI USD",
+    "Geri arama istekleri": "Callback requests",
+    "Geri arama isteği yok.": "No callback requests.",
+    "Geri arama tamamlandı olarak kaydedildi.": "Callback marked complete.",
+    "Geri aramalar": "Callbacks",
+    "Günlük kullanım": "Daily usage",
+    "Harici PBX kayıtları bu ayardan etkilenmez. Temizlik için sunucuda zamanlanmış görev gerekir; kurulum adımları README’de bulunur.":
+      "This setting does not affect recordings stored by an external PBX. Schedule the cleanup command on the server; setup steps are in the README.",
+    Hazır: "Ready",
+    "Henüz açılış mesajı kaydedilmedi.": "No greeting has been saved yet.",
+    "Henüz zamanlanmış temizlik çalışmadı.":
+      "The scheduled cleanup has not run yet.",
+    "İstek tamamlanamadı.": "The request could not be completed.",
+    "İstekler yükleniyor…": "Loading requests…",
+    "Kullanım raporu": "Usage report",
+    "Müşteri kırılımı": "Tenant breakdown",
+    "Ölçüm yok": "No usage data",
+    "Raporu getir": "Load report",
+    "Saklama ayarı kaydedildi.": "Retention setting saved.",
+    "Saklama ayarını kaydet": "Save retention setting",
+    "Saklama süresi": "Retention period",
+    "SIP hesabı bilgileri": "SIP account details",
+    "Son güncelleme: {0}": "Last updated: {0}",
+    "Son hata yok.": "No recent errors.",
+    "Son hatalar": "Recent errors",
+    "Son temizlik: {0}": "Last cleanup: {0}",
+    "Süre dolunca sistem transkripti ve çağrı inceleme notlarını otomatik temizler.":
+      "When the period expires, the system automatically clears transcripts and call review notes.",
+    "Süre dolunca transkript, özet ve notların silineceğini anlıyorum.":
+      "I understand that transcripts, summaries, and notes will be deleted after the retention period.",
+    "Süre sınırı yok (mevcut davranış)": "No time limit (current behavior)",
+    "Tarayıcıda sesli dinle": "Listen with browser voice",
+    "Tarayıcıda sesli ön izleme desteklenmiyor.":
+      "Browser speech preview is not supported.",
+    "Tamamlandı olarak işaretle": "Mark complete",
+    "Tüm müşteriler": "All tenants",
+    "Veri saklama": "Data retention",
+    "Veri yok": "No data",
+    "Yayınlanmış bilgi bankası": "Published knowledge base",
+    "Yeni gelen çağrılar burada görünür.": "New inbound calls appear here.",
+    Yenile: "Refresh",
+    "Yalnızca yönetici görünümü.": "Administrator view only.",
+    "Transkript saklama süresi": "Transcript retention period",
+    OPERASYON: "OPERATIONS",
+    TAKİP: "FOLLOW-UP",
+    "VERİ KONTROLÜ": "DATA CONTROLS",
+    Müşteri: "Tenant",
+    "TARİH (UTC)": "DATE (UTC)",
+    ÇAĞRI: "CALLS",
+    "KULLANILAN KREDİ": "CREDITS USED",
+    "OPENAI TAHMİNİ (USD)": "ESTIMATED OPENAI (USD)",
+    TOKEN: "TOKENS",
+    TARİH: "DATE",
+    TELEFON: "PHONE",
+    NEDEN: "REASON",
+    DURUM: "STATUS",
+    İŞLEM: "ACTION",
+  });
+  Object.assign(catalogs.ru, {
+    "{0}–{1} UTC · {2} çağrı · Tahmin yalnızca ölçüm kaydı bulunan çağrıları kapsar.":
+      "{0}–{1} UTC · звонков: {2} · Оценка учитывает только звонки с данными об использовании.",
+    "{0}/{1} hazır": "Готово: {0}/{1}",
+    "{0} geri arama isteği yüklendi.":
+      "Загружено запросов на обратный звонок: {0}.",
+    "AI asistanın kaydettiği ve ekip tarafından sonuçlandırılacak talepler.":
+      "Запросы, сохранённые AI-ассистентом для обработки командой.",
+    "AI sağlayıcı anahtarı": "Ключ AI-провайдера",
+    "Aktif çağrı yok.": "Нет активных звонков.",
+    "Aktif çağrılar": "Активные звонки",
+    Başlangıç: "Начало",
+    "Bağlantı kurulamadı.": "Не удалось установить соединение.",
+    "Başarısız bağlantı kaydı bulunmuyor.": "Нет записей о сбоях соединения.",
+    Bekliyor: "Ожидает",
+    "Bu ön izleme kayıtlı metni gösterir. Gerçek telefon araması veya PBX bağlantı testi yapmaz.":
+      "Предпросмотр показывает сохранённый текст. Он не совершает реальный звонок и не проверяет маршрут PBX.",
+    "Canlı çağrı izleme": "Мониторинг звонков",
+    "Canlı izleme": "Мониторинг",
+    Çağrı: "Звонок",
+    "Credits billed": "Списано кредитов",
+    "CSV indir": "Скачать CSV",
+    "Date (UTC)": "Дата (UTC)",
+    "Estimated OpenAI USD": "Оценка OpenAI в USD",
+    "Geri arama istekleri": "Запросы на обратный звонок",
+    "Geri arama isteği yok.": "Нет запросов на обратный звонок.",
+    "Geri arama tamamlandı olarak kaydedildi.":
+      "Обратный звонок отмечен как выполненный.",
+    "Geri aramalar": "Обратные звонки",
+    "Günlük kullanım": "Использование по дням",
+    "Harici PBX kayıtları bu ayardan etkilenmez. Temizlik için sunucuda zamanlanmış görev gerekir; kurulum adımları README’de bulunur.":
+      "Эта настройка не влияет на записи во внешней PBX. Настройте расписание очистки на сервере; инструкция есть в README.",
+    Hazır: "Готово",
+    "Henüz açılış mesajı kaydedilmedi.": "Приветствие ещё не сохранено.",
+    "Henüz zamanlanmış temizlik çalışmadı.":
+      "Плановая очистка ещё не запускалась.",
+    "İstek tamamlanamadı.": "Не удалось выполнить запрос.",
+    "İstekler yükleniyor…": "Загрузка запросов…",
+    "Kullanım raporu": "Отчёт об использовании",
+    "Müşteri kırılımı": "По клиентам",
+    "Ölçüm yok": "Нет данных измерений",
+    "Raporu getir": "Загрузить отчёт",
+    "Saklama ayarı kaydedildi.": "Настройка хранения сохранена.",
+    "Saklama ayarını kaydet": "Сохранить срок хранения",
+    "Saklama süresi": "Срок хранения",
+    "SIP hesabı bilgileri": "Данные учётной записи SIP",
+    "Son güncelleme: {0}": "Последнее обновление: {0}",
+    "Son hata yok.": "Недавних ошибок нет.",
+    "Son hatalar": "Недавние ошибки",
+    "Son temizlik: {0}": "Последняя очистка: {0}",
+    "Süre dolunca sistem transkripti ve çağrı inceleme notlarını otomatik temizler.":
+      "По истечении срока система автоматически удалит расшифровки и заметки по звонкам.",
+    "Süre dolunca transkript, özet ve notların silineceğini anlıyorum.":
+      "Я понимаю, что по истечении срока хранения расшифровки, сводки и заметки будут удалены.",
+    "Süre sınırı yok (mevcut davranış)":
+      "Без ограничения срока (текущее поведение)",
+    "Tarayıcıda sesli dinle": "Прослушать голосом браузера",
+    "Tarayıcıda sesli ön izleme desteklenmiyor.":
+      "Браузер не поддерживает голосовой предпросмотр.",
+    "Tamamlandı olarak işaretle": "Отметить выполненным",
+    "Tüm müşteriler": "Все клиенты",
+    "Veri saklama": "Хранение данных",
+    "Veri yok": "Нет данных",
+    "Yayınlanmış bilgi bankası": "Опубликованная база знаний",
+    "Yeni gelen çağrılar burada görünür.":
+      "Новые входящие звонки появятся здесь.",
+    Yenile: "Обновить",
+    "Yalnızca yönetici görünümü.": "Только для администратора.",
+    "Transkript saklama süresi": "Срок хранения расшифровок",
+    OPERASYON: "ОПЕРАЦИИ",
+    TAKİP: "ОБРАТНАЯ СВЯЗЬ",
+    "VERİ KONTROLÜ": "УПРАВЛЕНИЕ ДАННЫМИ",
+    Müşteri: "Клиент",
+    "TARİH (UTC)": "ДАТА (UTC)",
+    ÇAĞRI: "ЗВОНКИ",
+    "KULLANILAN KREDİ": "ИСПОЛЬЗОВАНО КРЕДИТОВ",
+    "OPENAI TAHMİNİ (USD)": "ОЦЕНКА OPENAI (USD)",
+    TOKEN: "ТОКЕНЫ",
+    TARİH: "ДАТА",
+    TELEFON: "ТЕЛЕФОН",
+    NEDEN: "ПРИЧИНА",
+    DURUM: "СТАТУС",
+    İŞLEM: "ДЕЙСТВИЕ",
+  });
+  const extraTr = {
+    "Canlı durum değişti: {0} aktif çağrı, {1} son hata.":
+      "Canlı durum değişti: {0} aktif çağrı, {1} son hata.",
+    "{0} gün": "{0} gün",
+    "Ayarı aç": "Ayarı aç",
+    "Aktif görüşmeler ve son başarısız bağlantılar. Liste 15 saniyede bir yenilenir.":
+      "Aktif görüşmeler ve son başarısız bağlantılar. Liste 15 saniyede bir yenilenir.",
+    "Sağlayıcı tutarı, ölçüm kaydı olmayan çağrılarda boş bırakılır.":
+      "Sağlayıcı tutarı, ölçüm kaydı olmayan çağrılarda boş bırakılır.",
+    "Süre dolunca transkript, özet ve notların silineceğini anlıyorum.":
+      "Süre dolunca transkript, özet ve notların silineceğini anlıyorum.",
+    "Canlı izleme açık. Liste 15 saniyede bir yenilenir.":
+      "Canlı izleme açık. Liste 15 saniyede bir yenilenir.",
+    İncele: "İncele",
+    "İncelemeyi kaydet": "İncelemeyi kaydet",
+    Kalite: "Kalite",
+    Sonuç: "Sonuç",
+    "Henüz değerlendirilmedi": "Henüz değerlendirilmedi",
+    Çözüldü: "Çözüldü",
+    "Randevu oluşturuldu": "Randevu oluşturuldu",
+    "Geri arama gerekli": "Geri arama gerekli",
+    Çözülemedi: "Çözülemedi",
+    "Özet (düzenlenebilir yerel taslak)": "Özet (düzenlenebilir yerel taslak)",
+    "Çağrı özeti": "Çağrı özeti",
+    "Ekip notu": "Ekip notu",
+    "Transkriptten taslak oluştur": "Transkriptten taslak oluştur",
+    "Transkript bulunmuyor. Elle özet yazabilirsiniz.":
+      "Transkript bulunmuyor. Elle özet yazabilirsiniz.",
+    "Yerel taslak hazır. Kaydetmeden önce düzenleyebilirsiniz.":
+      "Yerel taslak hazır. Kaydetmeden önce düzenleyebilirsiniz.",
+    "İnceleme kaydedilemedi.": "İnceleme kaydedilemedi.",
+    "İnceleme kaydedildi.": "İnceleme kaydedildi.",
+    "Yetersiz veri": "Yetersiz veri",
+    "Çağrı tamamlandı": "Çağrı tamamlandı",
+    "AI yanıt verdi": "AI yanıt verdi",
+    "Bilgi bankası sonuç verdi": "Bilgi bankası sonuç verdi",
+    "Sonuç veya takip kaydedildi": "Sonuç veya takip kaydedildi",
+    Bilinmiyor: "Bilinmiyor",
+    Evet: "Evet",
+    Hayır: "Hayır",
+    "Bilinen göstergeler: {0}/4": "Bilinen göstergeler: {0}/4",
+    "Tüm çağrılar": "Tüm çağrılar",
+    "Başlangıç (UTC)": "Başlangıç (UTC)",
+    "Bitiş (UTC)": "Bitiş (UTC)",
+    "30 gün": "30 gün",
+    "90 gün": "90 gün",
+    "180 gün": "180 gün",
+    "365 gün": "365 gün",
+    "730 gün": "730 gün",
+  };
+  const extraEn = {
+    "Canlı durum değişti: {0} aktif çağrı, {1} son hata.":
+      "Live status changed: {0} active calls, {1} recent failures.",
+    "{0} gün": "{0} days",
+    "Ayarı aç": "Open setting",
+    "Tahmini OpenAI maliyeti yalnızca ölçüm kaydı olan çağrılar içindir.":
+      "Estimated OpenAI cost includes calls with recorded usage only.",
+    "Ölçüm kaydı olmayan çağrılarda sağlayıcı maliyeti hesaplanamaz.":
+      "Provider cost cannot be calculated for calls without usage measurements.",
+    "Aktif görüşmeler ve son başarısız bağlantılar. Liste 15 saniyede bir yenilenir.":
+      "Active calls and recent connection failures. The list refreshes every 15 seconds.",
+    "Sağlayıcı tutarı, ölçüm kaydı olmayan çağrılarda boş bırakılır.":
+      "Provider cost is left blank for calls without usage measurements.",
+    "Süre dolunca transkript, özet ve notların silineceğini anlıyorum.":
+      "I understand that transcripts, summaries, and notes will be deleted when the period expires.",
+    "Canlı izleme açık. Liste 15 saniyede bir yenilenir.":
+      "Live monitoring is on. The list refreshes every 15 seconds.",
+    İncele: "Review",
+    "İncelemeyi kaydet": "Save review",
+    Kalite: "Quality",
+    Sonuç: "Outcome",
+    "Henüz değerlendirilmedi": "Not reviewed",
+    Çözüldü: "Resolved",
+    "Randevu oluşturuldu": "Appointment booked",
+    "Geri arama gerekli": "Callback needed",
+    Çözülemedi: "Unresolved",
+    "Özet (düzenlenebilir yerel taslak)": "Summary (editable local draft)",
+    "Çağrı özeti": "Call summary",
+    "Ekip notu": "Team notes",
+    "Transkriptten taslak oluştur": "Draft from transcript",
+    "Transkript bulunmuyor. Elle özet yazabilirsiniz.":
+      "No transcript is available. You can write a summary manually.",
+    "Yerel taslak hazır. Kaydetmeden önce düzenleyebilirsiniz.":
+      "The local draft is ready. You can edit it before saving.",
+    "İnceleme kaydedilemedi.": "Could not save the review.",
+    "İnceleme kaydedildi.": "Review saved.",
+    "Yetersiz veri": "Not enough data",
+    "Çağrı tamamlandı": "Call completed",
+    "AI yanıt verdi": "AI responded",
+    "Bilgi bankası sonuç verdi": "Knowledge search returned results",
+    "Sonuç veya takip kaydedildi": "Outcome or follow-up recorded",
+    Bilinmiyor: "Unknown",
+    Evet: "Yes",
+    Hayır: "No",
+    "Bilinen göstergeler: {0}/4": "Known signals: {0}/4",
+    "Tüm çağrılar": "All calls",
+    "Başlangıç (UTC)": "Start (UTC)",
+    "Bitiş (UTC)": "End (UTC)",
+    "30 gün": "30 days",
+    "90 gün": "90 days",
+    "180 gün": "180 days",
+    "365 gün": "365 days",
+    "730 gün": "730 days",
+  };
+  const extraRu = {
+    "Canlı durum değişti: {0} aktif çağrı, {1} son hata.":
+      "Состояние изменилось: активных звонков — {0}, недавних сбоев — {1}.",
+    "{0} gün": "{0} дней",
+    "Ayarı aç": "Открыть настройку",
+    "Tahmini OpenAI maliyeti yalnızca ölçüm kaydı olan çağrılar içindir.":
+      "Оценка стоимости OpenAI включает только звонки с данными об использовании.",
+    "Ölçüm kaydı olmayan çağrılarda sağlayıcı maliyeti hesaplanamaz.":
+      "Стоимость провайдера нельзя рассчитать без данных измерений.",
+    "Aktif görüşmeler ve son başarısız bağlantılar. Liste 15 saniyede bir yenilenir.":
+      "Активные звонки и недавние сбои соединения. Список обновляется каждые 15 секунд.",
+    "Sağlayıcı tutarı, ölçüm kaydı olmayan çağrılarda boş bırakılır.":
+      "Стоимость провайдера не указывается для звонков без данных измерений.",
+    "Süre dolunca transkript, özet ve notların silineceğini anlıyorum.":
+      "Я понимаю, что по истечении срока расшифровки, сводки и заметки будут удалены.",
+    "Canlı izleme açık. Liste 15 saniyede bir yenilenir.":
+      "Мониторинг включён. Список обновляется каждые 15 секунд.",
+    İncele: "Проверить",
+    "İncelemeyi kaydet": "Сохранить обзор",
+    Kalite: "Качество",
+    Sonuç: "Результат",
+    "Henüz değerlendirilmedi": "Не проверено",
+    Çözüldü: "Решено",
+    "Randevu oluşturuldu": "Записан на приём",
+    "Geri arama gerekli": "Нужен обратный звонок",
+    Çözülemedi: "Не решено",
+    "Özet (düzenlenebilir yerel taslak)":
+      "Сводка (редактируемый локальный черновик)",
+    "Çağrı özeti": "Сводка звонка",
+    "Ekip notu": "Заметки команды",
+    "Transkriptten taslak oluştur": "Создать черновик по расшифровке",
+    "Transkript bulunmuyor. Elle özet yazabilirsiniz.":
+      "Расшифровка недоступна. Вы можете написать сводку вручную.",
+    "Yerel taslak hazır. Kaydetmeden önce düzenleyebilirsiniz.":
+      "Локальный черновик готов. Отредактируйте его перед сохранением.",
+    "İnceleme kaydedilemedi.": "Не удалось сохранить обзор.",
+    "İnceleme kaydedildi.": "Обзор сохранён.",
+    "Yetersiz veri": "Недостаточно данных",
+    "Çağrı tamamlandı": "Звонок завершён",
+    "AI yanıt verdi": "AI ответил",
+    "Bilgi bankası sonuç verdi": "База знаний дала результат",
+    "Sonuç veya takip kaydedildi": "Результат или дальнейшее действие записаны",
+    Bilinmiyor: "Неизвестно",
+    Evet: "Да",
+    Hayır: "Нет",
+    "Bilinen göstergeler: {0}/4": "Известные показатели: {0}/4",
+    "Tüm çağrılar": "Все звонки",
+    "Başlangıç (UTC)": "Начало (UTC)",
+    "Bitiş (UTC)": "Окончание (UTC)",
+    "30 gün": "30 дней",
+    "90 gün": "90 дней",
+    "180 gün": "180 дней",
+    "365 gün": "365 дней",
+    "730 gün": "730 дней",
+  };
+  Object.assign(catalogs.tr, extraTr);
+  Object.assign(catalogs.en, extraEn);
+  Object.assign(catalogs.ru, extraRu);
+  const failureTr = {
+    "AI sağlayıcısı çağrıyı tamamlayamadı. Sağlayıcı ayarlarını ve çağrı kayıtlarını kontrol edin.":
+      "AI sağlayıcısı çağrıyı tamamlayamadı. Sağlayıcı ayarlarını ve çağrı kayıtlarını kontrol edin.",
+    "Çağrı AI sağlayıcısına bağlanamadı. Sağlayıcı anahtarını ve SIP yönlendirmesini kontrol edin.":
+      "Çağrı AI sağlayıcısına bağlanamadı. Sağlayıcı anahtarını ve SIP yönlendirmesini kontrol edin.",
+    "Çağrı bağlantısı beklenmedik biçimde kesildi. Sağlayıcı ve sunucu bağlantısını kontrol edin.":
+      "Çağrı bağlantısı beklenmedik biçimde kesildi. Sağlayıcı ve sunucu bağlantısını kontrol edin.",
+  };
+  const failureEn = {
+    "AI sağlayıcısı çağrıyı tamamlayamadı. Sağlayıcı ayarlarını ve çağrı kayıtlarını kontrol edin.":
+      "The AI provider could not complete the call. Check provider settings and call logs.",
+    "Çağrı AI sağlayıcısına bağlanamadı. Sağlayıcı anahtarını ve SIP yönlendirmesini kontrol edin.":
+      "The call could not connect to the AI provider. Check the provider key and SIP routing.",
+    "Çağrı bağlantısı beklenmedik biçimde kesildi. Sağlayıcı ve sunucu bağlantısını kontrol edin.":
+      "The call connection ended unexpectedly. Check provider and server connectivity.",
+  };
+  const failureRu = {
+    "AI sağlayıcısı çağrıyı tamamlayamadı. Sağlayıcı ayarlarını ve çağrı kayıtlarını kontrol edin.":
+      "AI-провайдер не смог завершить звонок. Проверьте настройки провайдера и журнал звонков.",
+    "Çağrı AI sağlayıcısına bağlanamadı. Sağlayıcı anahtarını ve SIP yönlendirmesini kontrol edin.":
+      "Не удалось подключить звонок к AI-провайдеру. Проверьте ключ и маршрутизацию SIP.",
+    "Çağrı bağlantısı beklenmedik biçimde kesildi. Sağlayıcı ve sunucu bağlantısını kontrol edin.":
+      "Соединение звонка неожиданно прервалось. Проверьте подключение провайдера и сервера.",
+  };
+  Object.assign(catalogs.tr, failureTr);
+  Object.assign(catalogs.en, failureEn);
+  Object.assign(catalogs.ru, failureRu);
   if (typeof module !== "undefined" && module.exports)
     module.exports = catalogs;
   else root.OIM_LOCALES = catalogs;
 })(typeof window !== "undefined" ? window : globalThis);
-
