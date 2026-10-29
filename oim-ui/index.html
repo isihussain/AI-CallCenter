@@ -18,7 +18,7 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
     />
-    <link rel="stylesheet" href="styles.css?v=20261027-greeting" />
+    <link rel="stylesheet" href="styles.css?v=20261029-operations" />
     <link rel="stylesheet" href="login.css" />
   </head>
   <body>
@@ -115,6 +115,27 @@
               ></span>
               Çağrılar <span class="nav-badge" id="nav-call-count">0</span></a
             >
+            <a
+              class="nav-item"
+              href="#live-monitoring"
+              data-view="live-monitoring"
+              ><span class="nav-icon"
+                ><i
+                  class="fa-solid fa-satellite-dish"
+                  aria-hidden="true"
+                ></i></span
+              >Canlı izleme</a
+            >
+            <a class="nav-item" href="#callbacks" data-view="callbacks"
+              ><span class="nav-icon"
+                ><i class="fa-solid fa-headset" aria-hidden="true"></i></span
+              >Geri aramalar</a
+            >
+            <a class="nav-item" href="#usage-costs" data-view="usage-costs"
+              ><span class="nav-icon"
+                ><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span
+              >Kullanım raporu</a
+            >
             <a class="nav-item" href="#appointments" data-view="appointments"
               ><span class="nav-icon"
                 ><i class="fa-solid fa-calendar-check" aria-hidden="true"></i
@@ -174,6 +195,10 @@
                 ><i class="fa-brands fa-telegram" aria-hidden="true"></i
               ></span>
               Telegram</a
+            >
+            <a class="nav-item" href="#privacy" data-view="privacy"
+              ><span class="nav-icon"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></span>
+              Veri saklama</a
             >
             <a
               class="nav-item"
@@ -254,6 +279,10 @@
             ><select id="mobile-view" aria-label="Sayfa">
               <option value="dashboard">Genel Bakış</option>
               <option value="calls">Çağrılar</option>
+              <option value="live-monitoring">Canlı izleme</option>
+              <option value="callbacks">Geri aramalar</option>
+              <option value="usage-costs">Kullanım raporu</option>
+              <option value="privacy">Veri saklama</option>
               <option value="appointments">Randevular</option>
               <option value="agents">AI Ajanları</option>
               <option value="opening-message" data-customer-only="">
@@ -529,11 +558,13 @@
                       <th>SÜRE</th>
                       <th>KREDİ</th>
                       <th>SONUÇ</th>
+                      <th>KALİTE</th>
+                      <th>İNCELEME</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr>
-                      <td colspan="6">Çağrılar yükleniyor…</td>
+                      <td colspan="8">Çağrılar yükleniyor…</td>
                     </tr>
                   </tbody>
                 </table>
@@ -565,48 +596,87 @@
                   <h2>Kurulum durumu</h2>
                   <p id="setup-tenant-name">Örnek çalışma alanı</p>
                 </div>
-                <span class="progress-count">0/5</span>
+                <span
+                  class="progress-count"
+                  id="readiness-count"
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                  >—</span
+                >
               </div>
-              <div class="progress-track"><span style="width: 0%"></span></div>
-              <div class="check-list">
-                <label class="check"><span>○</span> SIP bağlantısı</label
-                ><label class="check"><span>○</span> AI ajanı oluşturuldu</label
-                ><label class="check"
-                  ><span>○</span> Bilgi bankası eklendi</label
-                ><label class="check"><span>○</span> Test çağrısı</label
-                ><label class="check"><span>○</span> Canlıya alındı</label>
+              <div class="progress-track" aria-hidden="true">
+                <span id="readiness-progress" style="width: 0%"></span>
               </div>
-              <button
-                class="button primary full"
-                type="button"
-                data-toast="Önce kurulum adımlarını tamamlayın."
-              >
-                Kurulumu tamamlayın
-              </button>
+              <div class="check-list" id="readiness-checks"></div>
+              <div class="readiness-preview">
+                <p class="form-note">
+                  Bu ön izleme kayıtlı metni gösterir. Gerçek telefon araması
+                  veya PBX bağlantı testi yapmaz.
+                </p>
+                <div
+                  id="greeting-preview"
+                  class="greeting-preview"
+                  data-user-content
+                >
+                  Karşılama metni yükleniyor…
+                </div>
+                <button
+                  class="button secondary"
+                  id="greeting-preview-speak"
+                  type="button"
+                >
+                  Tarayıcıda sesli dinle
+                </button>
+              </div>
             </article>
           </section>
           <section
             class="panel table-panel"
             id="usage-costs"
             data-view-panel="usage-costs"
-            data-admin-only=""
           >
             <div class="panel-heading">
               <div>
                 <h2>AI kullanım maliyeti</h2>
                 <p>
-                  Seçili müşterinin tüm filtre sonuçlarından hesaplanan tahmin.
+                  Çağrı kredileri ile sağlayıcı maliyet tahminini ayrı gösterir.
                 </p>
               </div>
-              <span class="pill success">Yönetici</span>
+              <span class="pill success">Rapor</span>
             </div>
+            <div class="report-toolbar">
+              <label
+                >Müşteri<select id="usage-tenant" data-admin-only="">
+                  <option value="">Tüm müşteriler</option>
+                </select></label
+              >
+              <label
+                >Başlangıç (UTC)<input id="usage-date-from" type="date"
+              /></label>
+              <label>Bitiş (UTC)<input id="usage-date-to" type="date" /></label>
+              <button class="button primary" id="usage-refresh" type="button">
+                Raporu getir
+              </button>
+              <button class="button secondary" id="usage-export" type="button">
+                CSV indir
+              </button>
+            </div>
+            <p
+              id="usage-status"
+              class="form-note"
+              role="status"
+              aria-live="polite"
+            >
+              Rapor yükleniyor…
+            </p>
             <div class="metric-grid compact">
               <article class="metric-card">
                 <div class="metric-top">
                   <span class="metric-label">OPENAI TAHMİNİ</span
                   ><span class="metric-icon blue">$</span>
                 </div>
-                <div class="metric-value" id="metric-openai-usd">$0.00</div>
+                <div class="metric-value" id="usage-openai-usd">$0.00</div>
                 <div class="metric-foot"><span>kayıtlı kullanım</span></div>
               </article>
               <article class="metric-card">
@@ -614,7 +684,7 @@
                   <span class="metric-label">TOPLAM TOKEN</span
                   ><span class="metric-icon green">#</span>
                 </div>
-                <div class="metric-value" id="metric-total-tokens">0</div>
+                <div class="metric-value" id="usage-total-tokens">0</div>
                 <div class="metric-foot">
                   <span>Realtime input + output</span>
                 </div>
@@ -624,10 +694,192 @@
                   <span class="metric-label">ÖLÇÜMLÜ ÇAĞRI</span
                   ><span class="metric-icon coral">◉</span>
                 </div>
-                <div class="metric-value" id="metric-metered-calls">0</div>
+                <div class="metric-value" id="usage-metered-calls">0</div>
                 <div class="metric-foot"><span>usage kaydı bulunan</span></div>
               </article>
             </div>
+            <div class="panel-heading usage-subheading">
+              <div>
+                <h3>Günlük kullanım</h3>
+                <p>
+                  Sağlayıcı tutarı, ölçüm kaydı olmayan çağrılarda boş
+                  bırakılır.
+                </p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>TARİH (UTC)</th>
+                    <th>ÇAĞRI</th>
+                    <th>KULLANILAN KREDİ</th>
+                    <th>OPENAI TAHMİNİ (USD)</th>
+                    <th>TOKEN</th>
+                  </tr>
+                </thead>
+                <tbody id="usage-daily-body">
+                  <tr>
+                    <td colspan="5">Rapor yükleniyor…</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div
+              class="panel-heading usage-subheading"
+              id="usage-tenant-heading"
+            >
+              <div>
+                <h3>Müşteri kırılımı</h3>
+                <p>Yalnızca yönetici görünümü.</p>
+              </div>
+            </div>
+            <div class="table-wrap" id="usage-tenant-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>MÜŞTERİ</th>
+                    <th>ÇAĞRI</th>
+                    <th>KULLANILAN KREDİ</th>
+                    <th>OPENAI TAHMİNİ (USD)</th>
+                  </tr>
+                </thead>
+                <tbody id="usage-tenant-body"></tbody>
+              </table>
+            </div>
+          </section>
+          <section
+            class="panel table-panel"
+            id="live-monitoring"
+            data-view-panel="live-monitoring"
+          >
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">OPERASYON</p>
+                <h2>Canlı çağrı izleme</h2>
+                <p>
+                  Aktif görüşmeler ve son başarısız bağlantılar. Liste 15
+                  saniyede bir yenilenir.
+                </p>
+              </div>
+              <button class="button secondary" id="live-refresh" type="button">
+                Yenile
+              </button>
+            </div>
+            <p
+              id="live-call-status"
+              class="form-note"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              Çağrılar yükleniyor…
+            </p>
+            <div class="monitor-grid">
+              <section>
+                <h3>Aktif çağrılar</h3>
+                <div id="active-call-list"></div>
+              </section>
+              <section>
+                <h3>Son hatalar</h3>
+                <div id="failed-call-list"></div>
+              </section>
+            </div>
+          </section>
+          <section
+            class="panel table-panel"
+            id="callbacks"
+            data-view-panel="callbacks"
+          >
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">TAKİP</p>
+                <h2>Geri arama istekleri</h2>
+                <p>
+                  AI asistanın kaydettiği ve ekip tarafından sonuçlandırılacak
+                  talepler.
+                </p>
+              </div>
+              <button
+                class="button secondary"
+                id="callbacks-refresh"
+                type="button"
+              >
+                Yenile
+              </button>
+            </div>
+            <p
+              id="callbacks-status"
+              class="form-note"
+              role="status"
+              aria-live="polite"
+            >
+              İstekler yükleniyor…
+            </p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>TARİH</th>
+                    <th>TELEFON</th>
+                    <th>NEDEN</th>
+                    <th>DURUM</th>
+                    <th>İŞLEM</th>
+                  </tr>
+                </thead>
+                <tbody id="callbacks-body">
+                  <tr>
+                    <td colspan="5">İstekler yükleniyor…</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section
+            class="panel table-panel"
+            id="privacy"
+            data-view-panel="privacy"
+          >
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">VERİ KONTROLÜ</p>
+                <h2>Transkript saklama süresi</h2>
+                <p>
+                  Süre dolunca sistem transkripti ve çağrı inceleme notlarını
+                  otomatik temizler.
+                </p>
+              </div>
+            </div>
+            <form id="retention-form" class="provider-form">
+              <label
+                >Saklama süresi<select id="retention-days">
+                  <option value="">Süre sınırı yok (mevcut davranış)</option>
+                  <option value="30">30 gün</option>
+                  <option value="90">90 gün</option>
+                  <option value="180">180 gün</option>
+                  <option value="365">365 gün</option>
+                  <option value="730">730 gün</option>
+                </select></label
+              >
+              <label class="check"
+                ><input id="retention-confirm" type="checkbox" required /> Süre
+                dolunca transkript, özet ve notların silineceğini
+                anlıyorum.</label
+              >
+              <button class="button primary" type="submit">
+                Saklama ayarını kaydet</button
+              ><span
+                id="retention-status"
+                class="form-note"
+                role="status"
+                aria-live="polite"
+              ></span>
+            </form>
+            <p id="retention-last-run" class="form-note"></p>
+            <p class="form-note">
+              Harici PBX kayıtları bu ayardan etkilenmez. Temizlik için sunucuda
+              zamanlanmış görev gerekir; kurulum adımları README’de bulunur.
+            </p>
           </section>
           <section class="panel table-panel" id="appointments">
             <div class="panel-heading">
@@ -1069,10 +1321,10 @@
     </div>
     <div class="toast" role="status" aria-live="polite"></div>
 
-    <script src="locales.js?v=20261029"></script>
-    <script src="i18n.js?v=20261029"></script>
-    <script src="call-history.js?v=20261029"></script>
-    <script src="app.js?v=20261029"></script>
+    <script src="locales.js?v=20261029-operations"></script>
+    <script src="i18n.js?v=20261029-operations"></script>
+    <script src="call-history.js?v=20261029-operations"></script>
+    <script src="app.js?v=20261029-operations"></script>
+    <script src="operations.js?v=20261029-operations"></script>
   </body>
 </html>
-

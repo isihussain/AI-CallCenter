@@ -25,6 +25,10 @@ if (pageContent && !document.querySelector("#help-center")) {
 }
 const viewPanels = {
   calls: document.querySelector("#calls"),
+  "usage-costs": document.querySelector("#usage-costs"),
+  "live-monitoring": document.querySelector("#live-monitoring"),
+  callbacks: document.querySelector("#callbacks"),
+  privacy: document.querySelector("#privacy"),
   appointments: document.querySelector("#appointments"),
   agents: document.querySelector(".agents-panel")?.closest(".content-grid"),
   customers: document.querySelector("#customers"),
@@ -156,7 +160,7 @@ crmPanel
   ?.querySelector("thead tr")
   ?.insertAdjacentHTML("beforeend", "<th>İŞLEM</th>");
 Object.entries(viewPanels).forEach(([name, el]) => {
-  if (el) el.dataset.viewPanel = name;
+  if (el && !el.dataset.viewPanel) el.dataset.viewPanel = name;
 });
 document
   .querySelector("#customer-telegram")
@@ -177,7 +181,7 @@ function setView(view = "dashboard") {
     el.classList.toggle(
       "view-hidden",
       view === "dashboard"
-        ? !["agents", "calls", "usage-costs"].includes(el.dataset.viewPanel)
+        ? !["agents", "calls"].includes(el.dataset.viewPanel)
         : el.dataset.viewPanel !== view,
     );
   });
@@ -205,6 +209,10 @@ function setView(view = "dashboard") {
   const labels = {
     dashboard: "Genel Bakış",
     calls: "Çağrılar",
+    "usage-costs": "Kullanım raporu",
+    "live-monitoring": "Canlı izleme",
+    callbacks: "Geri aramalar",
+    privacy: "Veri saklama",
     appointments: "Randevular",
     agents: "AI Ajanları",
     "opening-message": "Açılış mesajı",
@@ -219,6 +227,7 @@ function setView(view = "dashboard") {
   if (crumb) crumb.textContent = labels[view] || "Genel Bakış";
   if (location.hash !== `#${view}`) history.replaceState(null, "", `#${view}`);
 }
+window.OIMSetView = setView;
 setView(location.hash.slice(1) || "dashboard");
 const loginScreen = document.querySelector("#login-screen");
 const loginForm = document.querySelector("#login-form");
@@ -1511,6 +1520,7 @@ aiSettingsForm?.addEventListener("submit", async (event) => {
     aiSettingsStatus.dataset.state = "success";
     aiSettingsStatus.textContent =
       "Kaydedildi. Yeni çağrılar bu mesajla başlayacak.";
+    window.dispatchEvent(new Event("oim:ai-settings-updated"));
   } catch (err) {
     aiSettingsStatus.dataset.state = "error";
     aiSettingsStatus.textContent =
@@ -1683,4 +1693,3 @@ document.querySelector("#mobile-view")?.addEventListener("change", (event) => {
   setView(event.target.value);
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
-

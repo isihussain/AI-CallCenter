@@ -109,10 +109,16 @@ def db():
       CREATE TABLE IF NOT EXISTS tenant_ai_settings(tenant_id INTEGER PRIMARY KEY, greeting TEXT NOT NULL DEFAULT '', voice TEXT NOT NULL DEFAULT 'alloy', working_hours TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
       CREATE TABLE IF NOT EXISTS knowledge_search_events(id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, call_id TEXT NOT NULL, query TEXT NOT NULL, result_count INTEGER NOT NULL DEFAULT 0, results TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
       CREATE TABLE IF NOT EXISTS system_settings(key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS call_reviews(call_id TEXT PRIMARY KEY, tenant_id INTEGER NOT NULL, outcome TEXT NOT NULL DEFAULT 'unresolved', summary TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
+      CREATE TABLE IF NOT EXISTS callback_requests(id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, call_id TEXT NOT NULL UNIQUE, phone TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL, completed_at INTEGER, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
+      CREATE INDEX IF NOT EXISTS callback_tenant_status_created ON callback_requests(tenant_id,status,created_at DESC);
+      CREATE TABLE IF NOT EXISTS tenant_retention(tenant_id INTEGER PRIMARY KEY, transcript_retention_days INTEGER, updated_at INTEGER NOT NULL, last_purged_at INTEGER, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
     ''')
     columns={row['name'] for row in conn.execute('PRAGMA table_info(calls)').fetchall()}
     if 'billed_credits' not in columns: conn.execute('ALTER TABLE calls ADD COLUMN billed_credits REAL NOT NULL DEFAULT 0')
     if 'billed_at' not in columns: conn.execute('ALTER TABLE calls ADD COLUMN billed_at INTEGER')
+    if 'failure_code' not in columns: conn.execute("ALTER TABLE calls ADD COLUMN failure_code TEXT NOT NULL DEFAULT ''")
+    if 'failure_message' not in columns: conn.execute("ALTER TABLE calls ADD COLUMN failure_message TEXT NOT NULL DEFAULT ''")
     billing_columns={row['name'] for row in conn.execute('PRAGMA table_info(billing_settings)').fetchall()}
     if 'minimum_credit' not in billing_columns: conn.execute('ALTER TABLE billing_settings ADD COLUMN minimum_credit REAL NOT NULL DEFAULT 10')
     sip_columns={row['name'] for row in conn.execute('PRAGMA table_info(tenant_sip)').fetchall()}
@@ -168,7 +174,8 @@ def finalize_call(call_id):
             meta=json.dumps({'call_id':call_id,'seconds':seconds,'billable_minutes':minutes,'rate':rate,'ai_multiplier':multiplier,'server_hourly_rate':server_rate,'usage':dict(usage) if usage else None},ensure_ascii=False)
             conn.execute('UPDATE tenants SET credits=credits-? WHERE id=?',(charged,row['tenant_id']))
             conn.execute('INSERT INTO ledger(tenant_id,amount,kind,reason,meta,created_at) VALUES(?,?,?,?,?,?)',(row['tenant_id'],-charged,'debit',f'AI çağrı kullanımı ({minutes} dk)',meta,ended))
-        conn.execute('UPDATE calls SET status="ended",ended_at=?,billed_credits=?,billed_at=? WHERE call_id=?',(ended,charged,ended,call_id))
+        final_status='failed' if row['status']=='failed' else 'ended'
+        conn.execute('UPDATE calls SET status=?,ended_at=COALESCE(ended_at,?),billed_credits=?,billed_at=? WHERE call_id=?',(final_status,ended,charged,ended,call_id))
         conn.commit()
     finally:
         conn.close()
@@ -176,8 +183,21 @@ def finalize_call(call_id):
 def save_call_event(call_id, status, transcript=''):
     if status == 'ended': return finalize_call(call_id)
     conn=db()
-    conn.execute('UPDATE calls SET status=?, transcript=CASE WHEN ?="" THEN transcript ELSE transcript || ? END WHERE call_id=?', (status,transcript,transcript,call_id))
+    conn.execute('UPDATE calls SET status=CASE WHEN status="failed" THEN status ELSE ? END, transcript=CASE WHEN ?="" THEN transcript ELSE transcript || ? END WHERE call_id=?', (status,transcript,transcript,call_id))
     conn.commit(); conn.close()
+
+CALL_FAILURE_MESSAGES = {
+    'provider_error': 'AI sağlayıcısı çağrıyı tamamlayamadı. Sağlayıcı ayarlarını ve çağrı kayıtlarını kontrol edin.',
+    'accept_failed': 'Çağrı AI sağlayıcısına bağlanamadı. Sağlayıcı anahtarını ve SIP yönlendirmesini kontrol edin.',
+    'sideband_failed': 'Çağrı bağlantısı beklenmedik biçimde kesildi. Sağlayıcı ve sunucu bağlantısını kontrol edin.',
+}
+
+def record_call_failure(call_id, code, bill=True):
+    code=code if code in CALL_FAILURE_MESSAGES else 'sideband_failed'
+    conn=db()
+    conn.execute('UPDATE calls SET status="failed",failure_code=?,failure_message=?,ended_at=COALESCE(ended_at,?) WHERE call_id=?',(code,CALL_FAILURE_MESSAGES[code],now(),call_id))
+    conn.commit(); conn.close()
+    if bill: finalize_call(call_id)
 
 def configured_openai():
     conn=db(); row=conn.execute('SELECT * FROM provider_settings WHERE provider="openai" AND enabled=1').fetchone(); conn.close()
@@ -263,8 +283,7 @@ async def realtime_sideband(call_id, tenant_id):
                 if event_type == 'response.created' and ((event.get('response') or {}).get('metadata') or {}).get('purpose') == 'opening_greeting':
                     print('Realtime opening started for',call_id,flush=True)
                 if event_type == 'error':
-                    error=event.get('error') or {}
-                    print('Realtime event error for',call_id,error.get('type',''),error.get('code',''),error.get('message',''),flush=True)
+                    record_call_failure(call_id,'provider_error')
                 if event_type == 'response.done':
                     response=event.get('response') or {}
                     if (response.get('metadata') or {}).get('purpose') == 'opening_greeting':
@@ -295,11 +314,20 @@ async def realtime_sideband(call_id, tenant_id):
                     await ws.send(json.dumps({'type':'response.create'}))
                     if result.get('ok'):
                         threading.Thread(target=hangup_realtime_call,args=(call_id,6),daemon=True,name='hangup-'+call_id[-8:]).start()
+                if event_type == 'response.function_call_arguments.done' and event.get('name') == 'request_human_callback':
+                    try:
+                        args=json.loads(event.get('arguments') or '{}')
+                        result=save_callback_request(tenant_id,call_id,args)
+                        result['message']='A human callback request has been saved. Confirm the callback request to the caller; do not say the live call was transferred.'
+                    except Exception:
+                        result={'ok':False,'message':'The callback request could not be saved. Ask the caller to repeat or use another contact method.'}
+                    await ws.send(json.dumps({'type':'conversation.item.create','item':{'type':'function_call_output','call_id':event.get('call_id'),'output':json.dumps(result,ensure_ascii=False)}}))
+                    await ws.send(json.dumps({'type':'response.create'}))
                 if event_type in {'session.ended','realtime.call.ended'}: save_call_event(call_id,'ended'); break
     except websockets.ConnectionClosed:
         pass
-    except Exception as exc:
-        print('Realtime sideband error for',call_id,repr(exc),flush=True)
+    except Exception:
+        record_call_failure(call_id,'sideband_failed')
     finally:
         save_call_event(call_id,'ended')
 
@@ -494,13 +522,35 @@ def call_history(conn, session, query):
     summary['average_duration_seconds'] = round(summary['total_duration_seconds'] / summary['completed_calls']) if summary['completed_calls'] else 0
     summary['billed_credits'] = round(summary['billed_credits'], 2)
     summary['estimated_openai_usd'] = round(summary['estimated_openai_usd'], 8)
-    rows = conn.execute('''SELECT c.call_id,c.caller,c.status,c.transcript,c.started_at,c.ended_at,c.billed_credits,
-        u.model,u.input_tokens,u.output_tokens,u.total_tokens,u.input_audio_tokens,u.output_audio_tokens,u.estimated_openai_usd '''
-        + joined + ' ORDER BY c.started_at DESC,c.id DESC LIMIT ? OFFSET ?', params + [page_size, (page-1)*page_size]).fetchall()
+    rows = conn.execute('''SELECT c.call_id,c.caller,c.status,c.transcript,c.started_at,c.ended_at,c.billed_credits,c.failure_code,c.failure_message,
+        u.model,u.input_tokens,u.output_tokens,u.total_tokens,u.input_audio_tokens,u.output_audio_tokens,u.estimated_openai_usd,
+        COALESCE(r.outcome,'') AS review_outcome,COALESCE(r.summary,'') AS review_summary,COALESCE(r.notes,'') AS review_notes,
+        (SELECT COUNT(*) FROM knowledge_search_events k WHERE k.call_id=c.call_id AND k.tenant_id=c.tenant_id) AS knowledge_search_count,
+        (SELECT COUNT(*) FROM knowledge_search_events k WHERE k.call_id=c.call_id AND k.tenant_id=c.tenant_id AND k.result_count>0) AS knowledge_success_count,
+        (SELECT COUNT(*) FROM appointments a WHERE a.call_id=c.call_id AND a.tenant_id=c.tenant_id) AS appointment_count,
+        (SELECT COUNT(*) FROM callback_requests h WHERE h.call_id=c.call_id AND h.tenant_id=c.tenant_id) AS callback_count '''
+        + joined.replace('WHERE ', 'LEFT JOIN call_reviews r ON r.call_id=c.call_id AND r.tenant_id=c.tenant_id WHERE ', 1)
+        + ' ORDER BY c.started_at DESC,c.id DESC LIMIT ? OFFSET ?', params + [page_size, (page-1)*page_size]).fetchall()
+    items=[]
+    for item in rows:
+        call=dict(item)
+        signals=[]
+        signals.append(('completed', True if call['status']=='ended' else False if call['status'] in {'failed','rejected_no_credit'} else None, 35))
+        signals.append(('assistant_responded', True if re.search(r'^\s*(?:AI|Assistant)\s*:',call['transcript'] or '',re.I|re.M) else False if call['status'] in {'ended','failed'} else None, 35))
+        searches=int(call.pop('knowledge_search_count') or 0); useful=int(call.pop('knowledge_success_count') or 0)
+        signals.append(('knowledge_helpful', (useful>0) if searches else None, 15))
+        resolved=bool(int(call.pop('appointment_count') or 0) or int(call.pop('callback_count') or 0))
+        outcome=call['review_outcome']
+        signals.append(('follow_up_recorded', True if resolved or outcome in {'resolved','appointment_booked','callback_needed'} else False if outcome=='unresolved' else None, 15))
+        known=[signal for signal in signals if signal[1] is not None]
+        call['quality_score']=round(sum(weight for _,value,weight in known if value)*100/sum(weight for _,_,weight in known)) if len(known)>=2 else None
+        call['quality_coverage']=len(known)
+        call['quality_signals']=[{'key':key,'value':value} for key,value,_ in signals]
+        items.append(call)
     traffic = conn.execute("SELECT date(c.started_at,'unixepoch') AS day,COUNT(*) AS calls FROM calls c WHERE " + where + " GROUP BY day ORDER BY day", params).fetchall()
     total = summary['total_calls']
     return {
-        'items': [dict(row) for row in rows],
+        'items': items,
         'pagination': {'page':page, 'page_size':page_size, 'total':total,
             'total_pages':math.ceil(total/page_size), 'has_next':page*page_size<total,
             'has_previous':page>1, 'snapshot_id':snapshot_id},
@@ -509,6 +559,102 @@ def call_history(conn, session, query):
             'date_to':dates['date_to'].isoformat() if 'date_to' in dates else '', 'timezone':'UTC'},
         'summary':summary, 'traffic':[dict(row) for row in traffic],
     }
+
+def tenant_readiness(conn, tenant_id):
+    tenant=conn.execute('SELECT id,name FROM tenants WHERE id=? AND role="customer"',(tenant_id,)).fetchone()
+    if not tenant: return None
+    sip=conn.execute('SELECT username,domain,password FROM tenant_sip WHERE tenant_id=?',(tenant_id,)).fetchone()
+    settings=conn.execute('SELECT greeting FROM tenant_ai_settings WHERE tenant_id=?',(tenant_id,)).fetchone()
+    docs=conn.execute('SELECT COUNT(*) FROM knowledge_documents WHERE tenant_id=? AND status="published"',(tenant_id,)).fetchone()[0]
+    provider=conn.execute('SELECT api_key,enabled FROM provider_settings WHERE provider="openai"').fetchone()
+    provider_ready=bool((provider and provider['enabled'] and reveal(provider['api_key'])) or os.environ.get('OPENAI_API_KEY','').strip())
+    checks=[
+        {'key':'sip','ready':bool(sip and sip['username'].strip() and sip['domain'].strip() and reveal(sip['password']))},
+        {'key':'provider','ready':provider_ready},
+        {'key':'greeting','ready':bool(settings and settings['greeting'].strip())},
+        {'key':'knowledge','ready':docs>0,'published_count':docs},
+    ]
+    return {'tenant_id':tenant_id,'tenant_name':tenant['name'],'ready':all(x['ready'] for x in checks),'checks':checks,'pbx_route':'unverified','limitations':['The app cannot verify carrier registration or place an outbound test call. Confirm routing with your PBX operator.']}
+
+def usage_report(conn, session, query):
+    tenant_id=selected_tenant(session,query)
+    today=datetime.now(timezone.utc).date()
+    parsed={}
+    for name,default in (('date_from',today-timedelta(days=29)),('date_to',today)):
+        value=query_value(query,name).strip()
+        try: parsed[name]=date.fromisoformat(value) if value else default
+        except ValueError: raise ValueError(f'{name} must use YYYY-MM-DD') from None
+    if parsed['date_from']>parsed['date_to']: raise ValueError('date_from must not be later than date_to')
+    if (parsed['date_to']-parsed['date_from']).days>92: raise ValueError('Date range cannot exceed 93 days')
+    start=int(datetime.combine(parsed['date_from'],datetime.min.time(),timezone.utc).timestamp())
+    end=int(datetime.combine(parsed['date_to']+timedelta(days=1),datetime.min.time(),timezone.utc).timestamp())
+    sql='''SELECT c.tenant_id,date(c.started_at,'unixepoch') AS day,COUNT(*) AS calls,
+        SUM(c.billed_credits) AS billed_credits,SUM(u.estimated_openai_usd) AS estimated_openai_usd,
+        COUNT(u.estimated_openai_usd) AS metered_calls,SUM(u.total_tokens) AS total_tokens
+        FROM calls c LEFT JOIN call_usage u ON u.call_id=c.call_id
+        WHERE c.tenant_id IN (SELECT id FROM tenants WHERE role="customer") AND c.started_at>=? AND c.started_at<?'''
+    params=[start,end]
+    if tenant_id:
+        sql+=' AND c.tenant_id=?'; params.append(tenant_id)
+    rows=[dict(row) for row in conn.execute(sql+' GROUP BY c.tenant_id,day ORDER BY day,c.tenant_id',params).fetchall()]
+    tenant_names={r['id']:r['name'] for r in conn.execute('SELECT id,name FROM tenants WHERE role="customer"').fetchall()}
+    for row in rows:
+        row['tenant_name']=tenant_names.get(row['tenant_id'],'')
+        if not row['metered_calls']: row['estimated_openai_usd']=None
+        row['billed_credits']=round(float(row['billed_credits'] or 0),2)
+        if row['estimated_openai_usd'] is not None: row['estimated_openai_usd']=round(float(row['estimated_openai_usd']),8)
+        row['total_tokens']=int(row['total_tokens'] or 0)
+    by_day={}
+    by_tenant={}
+    for row in rows:
+        daily=by_day.setdefault(row['day'],{'day':row['day'],'calls':0,'billed_credits':0.0,'estimated_openai_usd':0.0,'metered_calls':0,'total_tokens':0})
+        per=by_tenant.setdefault(row['tenant_id'],{'tenant_id':row['tenant_id'],'tenant_name':row['tenant_name'],'calls':0,'billed_credits':0.0,'estimated_openai_usd':0.0,'metered_calls':0,'total_tokens':0})
+        for target in (daily,per):
+            target['calls']+=int(row['calls'] or 0); target['billed_credits']+=float(row['billed_credits'] or 0)
+            target['total_tokens']+=int(row['total_tokens'] or 0); target['metered_calls']+=int(row['metered_calls'] or 0)
+            if row['estimated_openai_usd'] is not None: target['estimated_openai_usd']+=row['estimated_openai_usd']
+    def clean(target):
+        for value in target.values():
+            value['billed_credits']=round(value['billed_credits'],2)
+            value['estimated_openai_usd']=round(value['estimated_openai_usd'],8) if value['metered_calls'] else None
+    clean(by_day); clean(by_tenant)
+    return {'filters':{'tenant_id':tenant_id,'date_from':parsed['date_from'].isoformat(),'date_to':parsed['date_to'].isoformat(),'timezone':'UTC'},'daily':list(by_day.values()),'tenants':list(by_tenant.values())}
+
+def purge_expired_transcripts(timestamp=None):
+    timestamp=timestamp or now(); conn=db(); results=[]
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        policies=conn.execute('SELECT tenant_id,transcript_retention_days FROM tenant_retention WHERE transcript_retention_days IS NOT NULL').fetchall()
+        for policy in policies:
+            cutoff=timestamp-int(policy['transcript_retention_days'])*86400
+            ids=[row['call_id'] for row in conn.execute('SELECT call_id FROM calls WHERE tenant_id=? AND status IN ("ended","failed") AND transcript<>"" AND COALESCE(ended_at,started_at)<?',(policy['tenant_id'],cutoff)).fetchall()]
+            if ids:
+                conn.executemany('UPDATE calls SET transcript="" WHERE tenant_id=? AND call_id=?',[(policy['tenant_id'],call_id) for call_id in ids])
+                conn.executemany('UPDATE call_reviews SET summary="",notes="" WHERE tenant_id=? AND call_id=?',[(policy['tenant_id'],call_id) for call_id in ids])
+            conn.execute('UPDATE tenant_retention SET last_purged_at=? WHERE tenant_id=?',(timestamp,policy['tenant_id']))
+            results.append({'tenant_id':policy['tenant_id'],'purged_calls':len(ids)})
+        conn.commit(); return results
+    except Exception:
+        conn.rollback(); raise
+    finally: conn.close()
+
+def save_callback_request(tenant_id, call_id, args):
+    phone=str(args.get('phone','')).strip(); reason=str(args.get('reason','')).strip()[:500]
+    digits=re.sub(r'\D','',phone)
+    if len(digits)<5 or len(phone)>32 or not re.fullmatch(r'[+0-9(). -]+',phone):
+        raise ValueError('A valid callback phone number is required')
+    conn=db()
+    try:
+        call=conn.execute('SELECT status FROM calls WHERE call_id=? AND tenant_id=?',(call_id,tenant_id)).fetchone()
+        if not call: raise LookupError('Call not found')
+        existing=conn.execute('SELECT id FROM callback_requests WHERE call_id=?',(call_id,)).fetchone()
+        if existing: return {'ok':True,'request_id':existing['id'],'duplicate':True}
+        if call['status'] not in {'incoming','active'}: raise ValueError('Callback requests can only be created during an active call')
+        cur=conn.execute('INSERT OR IGNORE INTO callback_requests(tenant_id,call_id,phone,reason,created_at) VALUES(?,?,?,?,?)',(tenant_id,call_id,phone,reason,now()))
+        conn.commit()
+        row=conn.execute('SELECT id FROM callback_requests WHERE call_id=?',(call_id,)).fetchone()
+        return {'ok':True,'request_id':row['id'],'duplicate':cur.rowcount==0}
+    finally: conn.close()
 
 class Handler(BaseHTTPRequestHandler):
     def handle_one_request(self):
@@ -587,6 +733,31 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 conn.close()
             return self.send_json(result)
+        query=urllib.parse.parse_qs(urlparse(self.path).query,keep_blank_values=True)
+        if path == '/api/readiness':
+            tid=selected_tenant(s,query)
+            if not tid: return self.send_json({'error':'Select a customer first'},400)
+            result=tenant_readiness(conn,tid)
+            return self.send_json(result or {'error':'Customer not found'},200 if result else 404)
+        if path == '/api/live-calls':
+            tid=selected_tenant(s,query)
+            if not tid: return self.send_json({'active':[],'failures':[]})
+            active=conn.execute('SELECT call_id,status,started_at FROM calls WHERE tenant_id=? AND status IN ("incoming","active") ORDER BY started_at DESC LIMIT 100',(tid,)).fetchall()
+            failures=conn.execute('SELECT call_id,status,started_at,ended_at,failure_code,failure_message FROM calls WHERE tenant_id=? AND status="failed" ORDER BY ended_at DESC LIMIT 20',(tid,)).fetchall()
+            return self.send_json({'active':[dict(x) for x in active],'failures':[dict(x) for x in failures]})
+        if path == '/api/usage-report':
+            try: return self.send_json(usage_report(conn,s,query))
+            except (ValueError,OverflowError,OSError) as error: return self.send_json({'error':str(error)},400)
+        if path == '/api/callbacks':
+            tid=selected_tenant(s,query)
+            if not tid: return self.send_json({'items':[]})
+            rows=conn.execute('SELECT id,tenant_id,call_id,phone,reason,status,created_at,completed_at FROM callback_requests WHERE tenant_id=? ORDER BY CASE status WHEN "pending" THEN 0 ELSE 1 END,created_at DESC LIMIT 200',(tid,)).fetchall()
+            return self.send_json({'items':[dict(x) for x in rows]})
+        if path == '/api/privacy':
+            tid=selected_tenant(s,query)
+            if not tid: return self.send_json({'error':'Select a customer first'},400)
+            policy=conn.execute('SELECT transcript_retention_days,updated_at,last_purged_at FROM tenant_retention WHERE tenant_id=?',(tid,)).fetchone()
+            return self.send_json({'tenant_id':tid,'transcript_retention_days':policy['transcript_retention_days'] if policy else None,'updated_at':policy['updated_at'] if policy else None,'last_purged_at':policy['last_purged_at'] if policy else None})
         if path == '/api/appointments':
             query=urllib.parse.parse_qs(urlparse(self.path).query); tenant_id=(int((query.get('tenant_id') or [2])[0]) if s['role']=='admin' else s['tenant_id']); rows=conn.execute('SELECT id,customer_name,phone,service,appointment_at,notes,status,created_at FROM appointments WHERE tenant_id=? ORDER BY appointment_at DESC LIMIT 100',(tenant_id,)).fetchall()
             return self.send_json({'items':[dict(x) for x in rows]})
@@ -632,7 +803,7 @@ class Handler(BaseHTTPRequestHandler):
             query=urllib.parse.parse_qs(urlparse(self.path).query); tid=s['tenant_id'] if s['role']!='admin' else int((query.get('tenant_id') or [0])[0]); rows=conn.execute('SELECT id,language,title,content,status,created_at,updated_at FROM knowledge_documents WHERE tenant_id=? ORDER BY language,updated_at DESC',(tid,)).fetchall()
             return self.send_json({'items':[dict(x) for x in rows]})
         if path == '/api/tenant/ai-settings':
-            tid=s['tenant_id']; row=conn.execute('SELECT greeting,voice,working_hours,updated_at FROM tenant_ai_settings WHERE tenant_id=?',(tid,)).fetchone(); return self.send_json(dict(row) if row else {'greeting':'','voice':'alloy','working_hours':'','updated_at':None})
+            tid=selected_tenant(s,query); row=conn.execute('SELECT greeting,voice,working_hours,updated_at FROM tenant_ai_settings WHERE tenant_id=?',(tid,)).fetchone(); return self.send_json(dict(row) if row else {'greeting':'','voice':'alloy','working_hours':'','updated_at':None})
         if path == '/api/admin/knowledge-search-events':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
             query=urllib.parse.parse_qs(urlparse(self.path).query); tid=int((query.get('tenant_id') or [2])[0]); rows=conn.execute('SELECT call_id,query,result_count,created_at FROM knowledge_search_events WHERE tenant_id=? ORDER BY id DESC LIMIT 100',(tid,)).fetchall(); return self.send_json({'items':[dict(x) for x in rows]})
@@ -709,18 +880,23 @@ Appointment policy:
 - Collect customer name, phone, service, Europe/Istanbul date-time, and optional note one by one.
 - Confirm all details in the caller's language before calling create_appointment.
 - Do not claim that an appointment is confirmed until the tool succeeds. If the calendar reports a busy time, offer another time.'''
+                instructions += '\nCallback policy: If the caller requests a person or the issue cannot be resolved, offer a human callback, confirm the preferred phone number and a brief reason, then call request_human_callback. Only say a callback request is recorded after the tool succeeds. This does not transfer the live call.'
                 instructions += '\nAfter a successful appointment, thank the caller, state that the reservation is recorded, say a brief goodbye, and do not continue asking questions.'
                 if greeting: instructions += f'\nOpening greeting (use at the start of the call): {greeting}'
                 if working_hours: instructions += f'\nBusiness working hours: {working_hours}. Do not offer appointments outside these hours.'
                 instructions += f'''\n\nPUBLISHED KNOWLEDGE BASE (tenant-specific; treat it as the source of truth):\n{knowledge}\nUse only the relevant language section when answering. For detailed business questions, call search_knowledge first. If neither retrieved snippets nor this published context contains an answer, say so instead of guessing.'''
-                tools=[{'type':'function','name':'search_knowledge','description':'Müşterinin yayınlanmış tenant bilgi bankasında arama yap. Fiyat, program, çalışma saati, iade veya işletme kuralı sorularında önce bu aracı kullan.','parameters':{'type':'object','properties':{'query':{'type':'string','description':'Aranan konu veya müşteri sorusunun kısa özeti'}} ,'required':['query'],'additionalProperties':False}},{'type':'function','name':'create_appointment','description':'Müşteri tüm ayrıntıları teyit ettikten sonra randevuyu OIM takvimine kaydeder.','parameters':{'type':'object','properties':{'customer_name':{'type':'string','description':'Müşterinin ad ve soyadı'},'phone':{'type':'string','description':'Telefon numarası'},'service':{'type':'string','description':'İstenen hizmet veya eğitim'},'appointment_at':{'type':'string','description':'Europe/Istanbul saat diliminde ISO 8601 tarih ve saat'},'notes':{'type':'string','description':'Kısa ek not'}},'required':['customer_name','phone','service','appointment_at'],'additionalProperties':False}}]
+                tools=[
+                    {'type':'function','name':'search_knowledge','description':'Müşterinin yayınlanmış tenant bilgi bankasında arama yap. Fiyat, program, çalışma saati, iade veya işletme kuralı sorularında önce bu aracı kullan.','parameters':{'type':'object','properties':{'query':{'type':'string','description':'Aranan konu veya müşteri sorusunun kısa özeti'}} ,'required':['query'],'additionalProperties':False}},
+                    {'type':'function','name':'create_appointment','description':'Müşteri tüm ayrıntıları teyit ettikten sonra randevuyu OIM takvimine kaydeder.','parameters':{'type':'object','properties':{'customer_name':{'type':'string','description':'Müşterinin ad ve soyadı'},'phone':{'type':'string','description':'Telefon numarası'},'service':{'type':'string','description':'İstenen hizmet veya eğitim'},'appointment_at':{'type':'string','description':'Europe/Istanbul saat diliminde ISO 8601 tarih ve saat'},'notes':{'type':'string','description':'Kısa ek not'}},'required':['customer_name','phone','service','appointment_at'],'additionalProperties':False}},
+                    {'type':'function','name':'request_human_callback','description':'Sorun çözülemediğinde veya müşteri insanla görüşmek istediğinde, onay aldığı telefon numarası ve kısa nedeni ile geri arama isteği kaydet. Canlı çağrıyı başka bir hatta aktardığını söyleme.','parameters':{'type':'object','properties':{'phone':{'type':'string','description':'Müşterinin geri aranmak için onayladığı telefon numarası'},'reason':{'type':'string','description':'Geri arama için kısa neden'}},'required':['phone'],'additionalProperties':False}}
+                ]
                 body=json.dumps({'type':'realtime','model':model,'output_modalities':['audio'],'instructions':instructions,'tools':tools,'tool_choice':'auto','tracing':'auto'}).encode()
                 try:
                     req=urllib.request.Request('https://api.openai.com/v1/realtime/calls/'+str(call_id)+'/accept',data=body,headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST'); urllib.request.urlopen(req,timeout=15)
                     save_call_event(str(call_id),'active'); start_realtime_sideband(str(call_id),tenant_id)
                     return self.send_json({'ok':True,'accepted':True})
                 except Exception as exc:
-                    print('Realtime accept error for',call_id,repr(exc),flush=True); save_call_event(str(call_id),'failed')
+                    record_call_failure(str(call_id),'accept_failed',bill=False)
                     return self.send_json({'ok':False,'accepted':False},502)
             return self.send_json({'ok':True,'ignored':True})
         s=self.require()
@@ -748,6 +924,36 @@ Appointment policy:
             conn.commit()
             if not cur.rowcount: return self.send_json({'error':'CRM kaydı bulunamadı'},404)
             return self.send_json({'ok':True,'id':contact_id,'name':name,'phone':phone,'email':email,'notes':notes})
+        if path == '/api/call-review':
+            call_id=str(data.get('call_id','')).strip(); tid=s['tenant_id'] if s['role']!='admin' else int(data.get('tenant_id',0) or 0)
+            outcome=str(data.get('outcome','')).strip(); summary=str(data.get('summary','')).strip(); notes=str(data.get('notes','')).strip()
+            if not call_id or len(call_id)>200 or outcome not in {'','resolved','appointment_booked','callback_needed','unresolved'} or len(summary)>2000 or len(notes)>2000:
+                return self.send_json({'error':'Review fields are invalid or too long'},400)
+            call=conn.execute('SELECT 1 FROM calls WHERE call_id=? AND tenant_id=?',(call_id,tid)).fetchone()
+            if not call: return self.send_json({'error':'Call not found'},404)
+            conn.execute('''INSERT INTO call_reviews(call_id,tenant_id,outcome,summary,notes,updated_at) VALUES(?,?,?,?,?,?)
+                ON CONFLICT(call_id) DO UPDATE SET outcome=excluded.outcome,summary=excluded.summary,notes=excluded.notes,updated_at=excluded.updated_at WHERE call_reviews.tenant_id=excluded.tenant_id''',
+                (call_id,tid,outcome,summary,notes,now()))
+            conn.commit(); return self.send_json({'ok':True,'call_id':call_id,'outcome':outcome,'summary':summary,'notes':notes})
+        if path.startswith('/api/callbacks/') and path.endswith('/complete'):
+            try: request_id=int(path.strip('/').split('/')[2]); tid=s['tenant_id'] if s['role']!='admin' else int(data.get('tenant_id',0) or 0)
+            except (TypeError,ValueError,IndexError): return self.send_json({'error':'Invalid callback request'},400)
+            cur=conn.execute('UPDATE callback_requests SET status="completed",completed_at=? WHERE id=? AND tenant_id=?',(now(),request_id,tid))
+            if not cur.rowcount: return self.send_json({'error':'Callback request not found'},404)
+            conn.commit(); return self.send_json({'ok':True,'id':request_id,'status':'completed'})
+        if path == '/api/privacy':
+            tid=s['tenant_id'] if s['role']!='admin' else int(data.get('tenant_id',0) or 0)
+            tenant=conn.execute('SELECT 1 FROM tenants WHERE id=? AND role="customer"',(tid,)).fetchone()
+            if not tenant: return self.send_json({'error':'Customer not found'},404)
+            value=data.get('transcript_retention_days')
+            if value in ('',None): days=None
+            else:
+                try: days=int(value)
+                except (TypeError,ValueError): return self.send_json({'error':'Retention must be disabled or between 1 and 3650 days'},400)
+                if days<1 or days>3650: return self.send_json({'error':'Retention must be disabled or between 1 and 3650 days'},400)
+            conn.execute('''INSERT INTO tenant_retention(tenant_id,transcript_retention_days,updated_at) VALUES(?,?,?)
+                ON CONFLICT(tenant_id) DO UPDATE SET transcript_retention_days=excluded.transcript_retention_days,updated_at=excluded.updated_at''',(tid,days,now()))
+            conn.commit(); return self.send_json({'ok':True,'tenant_id':tid,'transcript_retention_days':days})
         if path == '/api/admin/providers/test':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
             provider=str(data.get('provider','')).strip().lower(); row=conn.execute('SELECT * FROM provider_settings WHERE provider=?',(provider,)).fetchone()

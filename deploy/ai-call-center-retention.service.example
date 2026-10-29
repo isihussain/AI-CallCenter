@@ -1,0 +1,17 @@
+[Unit]
+Description=AI Call Center transcript retention cleanup
+After=network.target
+
+[Service]
+Type=oneshot
+User=ai-call-center
+Group=ai-call-center
+WorkingDirectory=/opt/ai-call-center-saas
+EnvironmentFile=/etc/ai-call-center.env
+ExecStart=/opt/ai-call-center-saas/.venv/bin/python /opt/ai-call-center-saas/oim-mvp/purge_transcripts.py
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ai-call-center

@@ -167,6 +167,12 @@ In **Calls**, select a UTC date range, status, caller substring, and page size, 
 
 The CSV report downloads all matching call pages. It stops if any page fails, rather than downloading a partial report. The file also includes the latest 100 appointments for the selected tenant and states that separate coverage. See the [call-history API reference](docs/call-history-api.md) for query parameters, ordering, response fields, and snapshot limits.
 
+## Readiness, monitoring, reviews, and privacy
+
+The dashboard includes a tenant-scoped setup readiness panel, a greeting preview, active and failed call monitoring, a callback queue, editable call reviews, and usage reports. The greeting preview uses the saved text and optional browser speech; it does not place a telephone test call or verify an operator PBX route. Human follow-up is recorded as a callback request, not a live transfer. Quality indicators use a documented deterministic rubric and show which signals were available.
+
+Customers can configure transcript retention from their dashboard. Configure the daily cleanup timer before relying on a retention policy: see [operations and retention setup](docs/operations.md) and the example [systemd service](deploy/ai-call-center-retention.service.example) and [timer](deploy/ai-call-center-retention.timer.example). Cleanup removes expired transcripts and call-review summaries/notes while preserving billing and call metadata. Recordings stored by an external PBX need a separate retention policy.
+
 ## Tests
 
 Install the Python dependencies, then run the API and voice-opening regression tests from the repository root:
@@ -175,7 +181,7 @@ Install the Python dependencies, then run the API and voice-opening regression t
 python -m unittest discover -s oim-mvp/tests -v
 ```
 
-These tests use temporary databases and synthetic accounts. They cover authenticated requests, customer isolation, administrator permissions, contact mutations, call filters, pagination, full-result summaries, and the first Realtime greeting. Outbound provider requests are mocked.
+These tests use temporary databases and synthetic accounts. They cover authenticated requests, customer isolation, administrator permissions, contact mutations, call filters, pagination, usage aggregation, readiness checks, callback requests, reviews, transcript retention, and the first Realtime greeting. Outbound provider requests are mocked.
 
 Dashboard checks require Node.js 22+ and pnpm 11.25.0:
 
@@ -209,10 +215,12 @@ The smoke check creates its own disposable stack, signs in with synthetic creden
 
 ```text
 oim-mvp/backend.py                 Python API, SQLite schema, integrations, Realtime handling
-oim-mvp/tests/                     API, tenant-isolation, and voice-opening tests
+oim-mvp/purge_transcripts.py       Scheduled transcript-retention cleanup entry point
+oim-mvp/tests/                     API, tenant-isolation, operations, and voice-opening tests
 oim-ui/index.html                  Login and dashboard markup
 oim-ui/app.js                      Dashboard behavior and API calls
-oim-ui/call-history.js             Filters, pagination, summaries, and report collection
+oim-ui/call-history.js             Filters, pagination, reviews, quality signals, and reports
+oim-ui/operations.js               Readiness, monitoring, callbacks, usage, and retention panels
 oim-ui/i18n.js                     Browser language selection and text bindings
 oim-ui/locales.js                  Turkish, English, and Russian message catalog
 oim-ui/tests/                      Dashboard regression tests
@@ -221,7 +229,7 @@ oim-ui/login.css                   Login styling
 oim-ui/help.html                   Generic deployment help
 oim-ui/knowledge-*.md              Knowledge prompt and language templates
 deploy/                            Example systemd and Nginx configuration
-docs/                              Container, API, language guides, and synthetic screenshots
+docs/                              Container, API, operations, language guides, and synthetic screenshots
 scripts/                           Development certificate and Compose smoke check
 Dockerfile / Dockerfile.web         API and frontend images
 compose.yaml                       Persistent same-origin HTTPS stack
