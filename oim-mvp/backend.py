@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import asyncio, base64, hashlib, hmac, json, math, os, re, secrets, sqlite3, subprocess, threading, time
 import urllib.parse, urllib.request
+from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -98,6 +99,7 @@ def db():
       CREATE TABLE IF NOT EXISTS billing_settings(id INTEGER PRIMARY KEY CHECK(id=1), credits_per_minute REAL NOT NULL DEFAULT 0.1, ai_multiplier REAL NOT NULL DEFAULT 1, server_hourly_rate REAL NOT NULL DEFAULT 0, minimum_credit REAL NOT NULL DEFAULT 10, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS tenant_sip(tenant_id INTEGER PRIMARY KEY, username TEXT NOT NULL DEFAULT '', did TEXT NOT NULL DEFAULT '', domain TEXT NOT NULL DEFAULT '', password TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
       CREATE TABLE IF NOT EXISTS calls(id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, call_id TEXT UNIQUE NOT NULL, caller TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'incoming', transcript TEXT NOT NULL DEFAULT '', started_at INTEGER NOT NULL, ended_at INTEGER, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
+      CREATE INDEX IF NOT EXISTS calls_tenant_started_id ON calls(tenant_id,started_at DESC,id DESC);
       CREATE TABLE IF NOT EXISTS call_usage(call_id TEXT PRIMARY KEY, model TEXT NOT NULL DEFAULT '', input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, total_tokens INTEGER NOT NULL DEFAULT 0, input_text_tokens INTEGER NOT NULL DEFAULT 0, input_audio_tokens INTEGER NOT NULL DEFAULT 0, input_cached_tokens INTEGER NOT NULL DEFAULT 0, output_text_tokens INTEGER NOT NULL DEFAULT 0, output_audio_tokens INTEGER NOT NULL DEFAULT 0, estimated_openai_usd REAL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS appointments(id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, call_id TEXT, customer_name TEXT NOT NULL, phone TEXT NOT NULL, service TEXT NOT NULL, appointment_at TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'confirmed', created_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
       CREATE TABLE IF NOT EXISTS telegram_settings(tenant_id INTEGER PRIMARY KEY, bot_token TEXT NOT NULL DEFAULT '', chat_id TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
@@ -412,7 +414,114 @@ def knowledge_search(tenant_id, query, limit=4):
 def log_knowledge_search(tenant_id, call_id, query, results):
     conn=db(); conn.execute('INSERT INTO knowledge_search_events(tenant_id,call_id,query,result_count,results,created_at) VALUES(?,?,?,?,?,?)',(tenant_id,str(call_id),str(query)[:1000],len(results),json.dumps(results,ensure_ascii=False),now())); conn.commit(); conn.close()
 
+CALL_STATUSES = {'incoming', 'active', 'ended', 'failed', 'rejected_no_credit'}
+
+def query_value(query, name, default=''):
+    values = query.get(name, [default])
+    if len(values) != 1:
+        raise ValueError(f'{name} must be supplied only once')
+    return values[0]
+
+def query_integer(query, name, default, minimum=1, maximum=1_000_000):
+    text = str(query_value(query, name, str(default)))
+    if not re.fullmatch(r'\d+', text):
+        raise ValueError(f'{name} must be an integer')
+    value = int(text)
+    if not minimum <= value <= maximum:
+        raise ValueError(f'{name} must be between {minimum} and {maximum}')
+    return value
+
+def selected_tenant(session, query):
+    # Customer-supplied tenant identifiers never change their session's scope.
+    if session['role'] != 'admin':
+        return session['tenant_id']
+    return query_integer(query, 'tenant_id', 0, 0, 2**63-1)
+
+def call_history(conn, session, query):
+    tenant_id = selected_tenant(session, query)
+    page = query_integer(query, 'page', 1)
+    page_size = query_integer(query, 'page_size', 50, 1, 100)
+    status = query_value(query, 'status').strip()
+    caller = query_value(query, 'caller').strip()
+    if status and status not in CALL_STATUSES:
+        raise ValueError('status must be incoming, active, ended, failed, or rejected_no_credit')
+    if len(caller) > 100:
+        raise ValueError('caller must contain at most 100 characters')
+    dates = {}
+    for name in ('date_from', 'date_to'):
+        value = query_value(query, name).strip()
+        if value:
+            if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+                raise ValueError(f'{name} must use YYYY-MM-DD')
+            try:
+                dates[name] = date.fromisoformat(value)
+            except ValueError:
+                raise ValueError(f'{name} must be a valid calendar date') from None
+    if dates.get('date_from', date.min) > dates.get('date_to', date.max):
+        raise ValueError('date_from must not be later than date_to')
+    # A snapshot prevents newly inserted calls from shifting later pages/reports.
+    latest_id = conn.execute('SELECT COALESCE(MAX(id),0) FROM calls WHERE tenant_id=?', (tenant_id,)).fetchone()[0]
+    snapshot_id = query_integer(query, 'snapshot_id', latest_id, 0, 2**63-1)
+    conditions = ['c.tenant_id=?', 'c.id<=?']
+    params = [tenant_id, snapshot_id]
+    if status:
+        conditions.append('c.status=?')
+        params.append(status)
+    if caller:
+        conditions.append("c.caller LIKE ? ESCAPE '\\'")
+        params.append('%' + caller.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%')
+    for name, comparison in (('date_from', '>='), ('date_to', '<')):
+        if name in dates:
+            day = dates[name]
+            try:
+                if name == 'date_to':
+                    day += timedelta(days=1)
+                timestamp = int(datetime.combine(day, datetime.min.time(), timezone.utc).timestamp())
+            except (ValueError, OverflowError, OSError):
+                raise ValueError(f'{name} is outside the supported date range') from None
+            conditions.append(f'c.started_at{comparison}?')
+            params.append(timestamp)
+    where = ' AND '.join(conditions)
+    joined = 'FROM calls c LEFT JOIN call_usage u ON u.call_id=c.call_id WHERE ' + where
+    summary_row = conn.execute('''SELECT COUNT(*) AS total_calls,
+        COALESCE(SUM(CASE WHEN c.status='ended' THEN 1 ELSE 0 END),0) AS completed_calls,
+        COALESCE(SUM(CASE WHEN c.status='ended' THEN MAX(0,COALESCE(c.ended_at,c.started_at)-c.started_at) ELSE 0 END),0) AS total_duration_seconds,
+        COALESCE(SUM(c.billed_credits),0) AS billed_credits,
+        COALESCE(SUM(u.estimated_openai_usd),0) AS estimated_openai_usd,
+        COALESCE(SUM(u.total_tokens),0) AS total_tokens,
+        COALESCE(SUM(CASE WHEN u.estimated_openai_usd IS NOT NULL THEN 1 ELSE 0 END),0) AS metered_calls ''' + joined, params).fetchone()
+    summary = dict(summary_row)
+    summary['average_duration_seconds'] = round(summary['total_duration_seconds'] / summary['completed_calls']) if summary['completed_calls'] else 0
+    summary['billed_credits'] = round(summary['billed_credits'], 2)
+    summary['estimated_openai_usd'] = round(summary['estimated_openai_usd'], 8)
+    rows = conn.execute('''SELECT c.call_id,c.caller,c.status,c.transcript,c.started_at,c.ended_at,c.billed_credits,
+        u.model,u.input_tokens,u.output_tokens,u.total_tokens,u.input_audio_tokens,u.output_audio_tokens,u.estimated_openai_usd '''
+        + joined + ' ORDER BY c.started_at DESC,c.id DESC LIMIT ? OFFSET ?', params + [page_size, (page-1)*page_size]).fetchall()
+    traffic = conn.execute("SELECT date(c.started_at,'unixepoch') AS day,COUNT(*) AS calls FROM calls c WHERE " + where + " GROUP BY day ORDER BY day", params).fetchall()
+    total = summary['total_calls']
+    return {
+        'items': [dict(row) for row in rows],
+        'pagination': {'page':page, 'page_size':page_size, 'total':total,
+            'total_pages':math.ceil(total/page_size), 'has_next':page*page_size<total,
+            'has_previous':page>1, 'snapshot_id':snapshot_id},
+        'filters': {'tenant_id':tenant_id, 'status':status, 'caller':caller,
+            'date_from':dates['date_from'].isoformat() if 'date_from' in dates else '',
+            'date_to':dates['date_to'].isoformat() if 'date_to' in dates else '', 'timezone':'UTC'},
+        'summary':summary, 'traffic':[dict(row) for row in traffic],
+    }
+
 class Handler(BaseHTTPRequestHandler):
+    def handle_one_request(self):
+        self._database_connections=[]
+        try:
+            return super().handle_one_request()
+        finally:
+            for conn in self._database_connections:
+                conn.close()
+    def open_db(self):
+        conn=db()
+        self._database_connections.append(conn)
+        return conn
     def log_message(self, fmt, *args): pass
     def send_json(self, data, status=200):
         body=json.dumps(data,ensure_ascii=False).encode()
@@ -450,7 +559,7 @@ class Handler(BaseHTTPRequestHandler):
                 req=urllib.request.Request('https://oauth2.googleapis.com/token',data=body,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST')
                 token=json.loads(urllib.request.urlopen(req,timeout=20).read()); access=token.get('access_token',''); refresh=token.get('refresh_token','')
                 if not access: raise ValueError('no access token')
-                conn=db(); old=conn.execute('SELECT refresh_token FROM google_tokens WHERE tenant_id=?',(tenant_id,)).fetchone(); refresh=refresh or (reveal(old['refresh_token']) if old else '')
+                conn=self.open_db(); old=conn.execute('SELECT refresh_token FROM google_tokens WHERE tenant_id=?',(tenant_id,)).fetchone(); refresh=refresh or (reveal(old['refresh_token']) if old else '')
                 conn.execute('INSERT INTO google_tokens(tenant_id,access_token,refresh_token,expires_at,calendar_id,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(tenant_id) DO UPDATE SET access_token=excluded.access_token,refresh_token=excluded.refresh_token,expires_at=excluded.expires_at,updated_at=excluded.updated_at',(tenant_id,protect(access),protect(refresh),now()+int(token.get('expires_in',3600)),'primary',now())); conn.commit(); conn.close()
                 location=PUBLIC_URL+'/#calendar?connected=1'
             except Exception:
@@ -458,7 +567,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(302); self.send_header('Location',location); self.end_headers(); return
         s=self.require()
         if not s: return
-        conn=db(); row=conn.execute('SELECT * FROM tenants WHERE id=?',(s['tenant_id'],)).fetchone()
+        conn=self.open_db(); row=conn.execute('SELECT * FROM tenants WHERE id=?',(s['tenant_id'],)).fetchone()
         if path == '/api/me': return self.send_json({'user':public_tenant(row)})
         if path == '/api/google/status':
             token_row=conn.execute('SELECT calendar_id,expires_at FROM google_tokens WHERE tenant_id=?',(s['tenant_id'],)).fetchone()
@@ -470,8 +579,14 @@ class Handler(BaseHTTPRequestHandler):
             sql+=' ORDER BY id DESC LIMIT 200'; rows=conn.execute(sql,tuple(params)).fetchall()
             return self.send_json({'items':[dict(x) for x in rows]})
         if path == '/api/calls':
-            query=urllib.parse.parse_qs(urlparse(self.path).query); tenant_id=(int((query.get('tenant_id') or [2])[0]) if s['role']=='admin' else s['tenant_id']); rows=conn.execute('''SELECT c.call_id,c.caller,c.status,c.transcript,c.started_at,c.ended_at,c.billed_credits,u.model,u.input_tokens,u.output_tokens,u.total_tokens,u.input_audio_tokens,u.output_audio_tokens,u.estimated_openai_usd FROM calls c LEFT JOIN call_usage u ON u.call_id=c.call_id WHERE c.tenant_id=? ORDER BY c.id DESC LIMIT 50''',(tenant_id,)).fetchall()
-            return self.send_json({'items':[dict(x) for x in rows]})
+            try:
+                query=urllib.parse.parse_qs(urlparse(self.path).query, keep_blank_values=True)
+                result=call_history(conn,s,query)
+            except ValueError as error:
+                return self.send_json({'error':str(error),'code':'invalid_call_query'},400)
+            finally:
+                conn.close()
+            return self.send_json(result)
         if path == '/api/appointments':
             query=urllib.parse.parse_qs(urlparse(self.path).query); tenant_id=(int((query.get('tenant_id') or [2])[0]) if s['role']=='admin' else s['tenant_id']); rows=conn.execute('SELECT id,customer_name,phone,service,appointment_at,notes,status,created_at FROM appointments WHERE tenant_id=? ORDER BY appointment_at DESC LIMIT 100',(tenant_id,)).fetchall()
             return self.send_json({'items':[dict(x) for x in rows]})
@@ -500,17 +615,9 @@ class Handler(BaseHTTPRequestHandler):
             if not row: return self.send_json({'configured':False,'chat_id':'','enabled':False,'masked':''})
             token=reveal(row['bot_token']); return self.send_json({'configured':bool(token),'chat_id':row['chat_id'],'enabled':bool(row['enabled']),'masked':('••••'+token[-6:] if len(token)>6 else '')})
         if path.startswith('/api/contacts/') and path.endswith('/delete'):
-            tid=s['tenant_id'] if s['role']!='admin' else int(data.get('tenant_id',0)); parts=path.strip('/').split('/'); contact_id=int(parts[2]) if len(parts)>2 and parts[2].isdigit() else 0
-            if not contact_id: return self.send_json({'error':'Geçersiz CRM kaydı'},400)
-            cur=conn.execute('DELETE FROM crm_contacts WHERE id=? AND tenant_id=?',(contact_id,tid)); conn.commit()
-            return self.send_json({'ok':True,'deleted':cur.rowcount>0})
+            return self.send_json({'error':'Use POST for contact changes'},405)
         if path.startswith('/api/contacts/') and path.endswith('/update'):
-            tid=s['tenant_id'] if s['role']!='admin' else int(data.get('tenant_id',0)); parts=path.strip('/').split('/'); contact_id=int(parts[2]) if len(parts)>2 and parts[2].isdigit() else 0
-            name=str(data.get('name','')).strip(); phone=str(data.get('phone','')).strip(); email=str(data.get('email','')).strip(); notes=str(data.get('notes','')).strip()
-            if not contact_id or not tid or not name: return self.send_json({'error':'CRM kaydı ve kişi adı gerekli'},400)
-            cur=conn.execute('UPDATE crm_contacts SET name=?,phone=?,email=?,notes=?,updated_at=? WHERE id=? AND tenant_id=?',(name,phone,email,notes,now(),contact_id,tid)); conn.commit()
-            if not cur.rowcount: return self.send_json({'error':'CRM kaydı bulunamadı'},404)
-            return self.send_json({'ok':True,'id':contact_id,'name':name,'phone':phone,'email':email,'notes':notes})
+            return self.send_json({'error':'Use POST for contact changes'},405)
         if path.startswith('/api/contacts/') and path.count('/') == 3 and path.rsplit('/',1)[-1].isdigit():
             query=urllib.parse.parse_qs(urlparse(self.path).query); tid=s['tenant_id'] if s['role']!='admin' else int((query.get('tenant_id') or [0])[0]); contact_id=int(path.rsplit('/',1)[-1]); contact=conn.execute('SELECT id,name,phone,email,notes,created_at,updated_at FROM crm_contacts WHERE id=? AND tenant_id=?',(contact_id,tid)).fetchone()
             if not contact: return self.send_json({'error':'CRM kaydı bulunamadı'},404)
@@ -543,7 +650,7 @@ class Handler(BaseHTTPRequestHandler):
                 attempt=LOGIN_ATTEMPTS.get(client_ip,{'count':0,'first':current,'locked_until':0})
                 if attempt.get('locked_until',0)>current: return self.send_json({'error':'Çok fazla başarısız giriş. Lütfen daha sonra tekrar deneyin.'},429)
                 if current-attempt.get('first',current)>600: attempt={'count':0,'first':current,'locked_until':0}
-            conn=db(); row=conn.execute('SELECT * FROM tenants WHERE username=? AND status="active"',(data.get('username','').strip(),)).fetchone()
+            conn=self.open_db(); row=conn.execute('SELECT * FROM tenants WHERE username=? AND status="active"',(data.get('username','').strip(),)).fetchone()
             if not row or not check_password(data.get('password',''),row['password_hash']):
                 with LOGIN_LOCK:
                     attempt['count']=attempt.get('count',0)+1; attempt['first']=attempt.get('first',current); attempt['locked_until']=current+900 if attempt['count']>=5 else 0; LOGIN_ATTEMPTS[client_ip]=attempt
@@ -578,7 +685,7 @@ class Handler(BaseHTTPRequestHandler):
             if event_type == 'realtime.call.incoming' and call_id:
                 tenant_id=tenant_from_payload(payload)
                 key,model=configured_openai()
-                conn=db(); tenant=conn.execute('SELECT name,credits,status FROM tenants WHERE id=?',(tenant_id,)).fetchone(); conn.execute('INSERT OR IGNORE INTO calls(tenant_id,call_id,status,started_at) VALUES(?,?,?,?)',(tenant_id,str(call_id),'incoming',now()));
+                conn=self.open_db(); tenant=conn.execute('SELECT name,credits,status FROM tenants WHERE id=?',(tenant_id,)).fetchone(); conn.execute('INSERT OR IGNORE INTO calls(tenant_id,call_id,status,started_at) VALUES(?,?,?,?)',(tenant_id,str(call_id),'incoming',now()));
                 pricing=conn.execute('SELECT credits_per_minute,ai_multiplier,minimum_credit FROM billing_settings WHERE id=1').fetchone()
                 minimum_credit=max(0.01,float(pricing['minimum_credit'] if pricing else 10))
                 if not tenant or tenant['status']!='active' or float(tenant['credits']) < minimum_credit:
@@ -586,7 +693,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({'ok':True,'accepted':False,'reason':'insufficient_credits'})
                 conn.commit(); conn.close()
                 business_name=tenant['name'] if tenant else 'müşteri işletmesi'
-                settings_conn=db(); ai_settings=settings_conn.execute('SELECT greeting,voice,working_hours FROM tenant_ai_settings WHERE tenant_id=?',(tenant_id,)).fetchone(); settings_conn.close(); greeting=(ai_settings['greeting'] if ai_settings else '').strip(); voice=(ai_settings['voice'] if ai_settings else 'alloy') or 'alloy'; working_hours=(ai_settings['working_hours'] if ai_settings else '').strip()
+                settings_conn=self.open_db(); ai_settings=settings_conn.execute('SELECT greeting,voice,working_hours FROM tenant_ai_settings WHERE tenant_id=?',(tenant_id,)).fetchone(); settings_conn.close(); greeting=(ai_settings['greeting'] if ai_settings else '').strip(); voice=(ai_settings['voice'] if ai_settings else 'alloy') or 'alloy'; working_hours=(ai_settings['working_hours'] if ai_settings else '').strip()
                 knowledge=knowledge_context(tenant_id)
                 instructions=f'''You are the warm, concise voice assistant for {business_name}. You support exactly three languages: Turkish (TR), English (EN), and Russian (RU).
 Language policy:
@@ -618,7 +725,29 @@ Appointment policy:
             return self.send_json({'ok':True,'ignored':True})
         s=self.require()
         if not s: return
-        conn=db(); data=self.body()
+        conn=self.open_db(); data=self.body()
+        if path.startswith('/api/contacts/') and (path.endswith('/update') or path.endswith('/delete')):
+            parts=path.strip('/').split('/')
+            try:
+                contact_id=int(parts[2]) if len(parts)==4 else 0
+                tid=s['tenant_id'] if s['role']!='admin' else int(data.get('tenant_id',0))
+                if contact_id<1 or tid<1: raise ValueError()
+            except (TypeError,ValueError,IndexError):
+                return self.send_json({'error':'Geçersiz CRM kaydı'},400)
+            if path.endswith('/delete'):
+                cur=conn.execute('DELETE FROM crm_contacts WHERE id=? AND tenant_id=?',(contact_id,tid))
+                conn.commit()
+                if not cur.rowcount: return self.send_json({'error':'CRM kaydı bulunamadı'},404)
+                return self.send_json({'ok':True,'deleted':True})
+            name=str(data.get('name','')).strip()
+            phone=str(data.get('phone','')).strip()
+            email=str(data.get('email','')).strip()
+            notes=str(data.get('notes','')).strip()
+            if not name: return self.send_json({'error':'Kişi adı gerekli'},400)
+            cur=conn.execute('UPDATE crm_contacts SET name=?,phone=?,email=?,notes=?,updated_at=? WHERE id=? AND tenant_id=?',(name,phone,email,notes,now(),contact_id,tid))
+            conn.commit()
+            if not cur.rowcount: return self.send_json({'error':'CRM kaydı bulunamadı'},404)
+            return self.send_json({'ok':True,'id':contact_id,'name':name,'phone':phone,'email':email,'notes':notes})
         if path == '/api/admin/providers/test':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
             provider=str(data.get('provider','')).strip().lower(); row=conn.execute('SELECT * FROM provider_settings WHERE provider=?',(provider,)).fetchone()
@@ -772,3 +901,4 @@ Appointment policy:
 
 if __name__ == '__main__':
     bootstrap(); threading.Thread(target=recording_watcher,daemon=True,name='telegram-recordings').start(); print(f'OIM MVP listening on {HOST}:{PORT}', flush=True); ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()
+

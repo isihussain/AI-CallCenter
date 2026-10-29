@@ -2,6 +2,13 @@
 .env
 .env.*
 !.env.example
+!.env.compose.example
+deploy/docker/tls/
+tls/
+private-backup/
+backups/
+.artifacts/
+node_modules/
 *.secret
 bootstrap-credentials.txt
 
@@ -30,3 +37,4 @@ venv/
 *.zip
 tmp/
 temp/
+

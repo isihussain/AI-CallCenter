@@ -1,18 +1,22 @@
 # AI Call Center SaaS
 
+[![Tests](https://github.com/isihussain/AI-CallCenter/actions/workflows/tests.yml/badge.svg)](https://github.com/isihussain/AI-CallCenter/actions/workflows/tests.yml)
+
 An open-source starting point for a multi-tenant AI telephone assistant. It combines a lightweight Python API, a static customer and administrator dashboard, SQLite storage, OpenAI Realtime voice sessions, optional Google Calendar and Telegram integrations, and an external SIP/PBX connection.
 
 The project is a self-hosted application codebase, not a hosted service. You operate the server, telephone routes, provider accounts, customer data, backups, and legal notices.
 
 ## Screenshots
 
-The screenshots below show the Turkish-language administrator interface. Customer identities and live usage values are obscured.
+These screenshots use synthetic accounts and calls in a local demo. The dashboard supports Turkish, English, and Russian; the selected language changes interface text without rewriting a customer's greeting or knowledge.
 
-![Dashboard overview](dashboard-overview.png)
+![English dashboard with full-history usage summaries](docs/images/dashboard-en.jpg)
 
-![AI agent management](ai-agents.png)
+![English call history with server-side filters and pagination](docs/images/call-history-en.jpg)
 
-![Call history](call-history.png)
+![Russian customer greeting editor](docs/images/opening-message-ru.jpg)
+
+<img src="docs/images/mobile-ru.jpg" alt="Russian customer panel on a narrow mobile screen" width="375">
 
 ## What it includes
 
@@ -21,9 +25,12 @@ The screenshots below show the Turkish-language administrator interface. Custome
 - **Realtime call handling:** OpenAI Realtime API integration, audio-first opening greeting, transcript capture, usage accounting, and call status updates.
 - **Business knowledge:** publishable Markdown articles in Turkish, English, and Russian, with retrieval support for the voice agent.
 - **Appointments:** voice-agent booking flow, SQLite appointment records, and optional Google Calendar availability checks and event creation.
-- **Customer operations:** call and appointment views, CRM contacts, credit ledger, adjustable per-minute billing values, and estimated Realtime usage costs.
+- **Call history and reports:** server-side UTC date, status, and caller filters; stable pagination; summaries over all matching calls; CSV export across every matching page.
+- **Customer operations:** appointment views, CRM contacts, credit ledger, adjustable per-minute billing values, and estimated Realtime usage costs.
 - **Optional integrations:** customer-specific Telegram call-recording delivery, Google Calendar OAuth, configurable provider keys, and SMTP settings.
-- **Web dashboard:** static HTML, CSS, and JavaScript with responsive customer and administrator views.
+- **Web dashboard:** responsive customer and administrator views, a mobile section selector, and persistent Turkish, English, and Russian interface preferences.
+- **Container installation:** a same-origin HTTPS frontend and an unprivileged API, with persistent database and encryption-key storage.
+- **Automated checks:** Python API and tenant-isolation tests, dashboard tests, and a disposable HTTPS Compose smoke check in GitHub Actions.
 
 The telephone path depends on your SIP provider and PBX. This repository does not include production SIP credentials, carrier configuration, server logs, customer exports, or a ready-made root-level PBX provisioning program.
 
@@ -50,7 +57,26 @@ The browser and API should share one HTTPS origin. The included Nginx example se
 
 SQLite and the Python standard library provide storage and most HTTP functionality. Python package dependencies are listed in [`requirements.txt`](requirements.txt). `websockets` is pinned to the version used by the original deployment; upgrade it only after checking the Realtime connection code against the newer client API.
 
-## Quick start
+## Quick start with Docker
+
+Install Docker with Compose v2 and use its Linux engine. From the repository root:
+
+~~~sh
+cp .env.compose.example .env
+docker compose up --build -d --wait
+~~~
+
+In PowerShell, use `Copy-Item .env.compose.example .env` for the first command. Open `https://localhost:8443`. The local stack generates a self-signed development certificate, which you must trust yourself; use a trusted certificate for a public domain.
+
+On the first start, read the generated administrator credentials privately:
+
+~~~sh
+docker compose exec api cat /data/bootstrap-credentials.txt
+~~~
+
+Save them in your password manager and remove that file from the data volume. The stack starts without customer accounts or provider credentials. See [container installation](docs/containers.md) for runtime configuration, public TLS, persistent volumes, backups, upgrades, and the separate PBX integration.
+
+## Quick start without Docker
 
 From the repository root:
 
@@ -133,15 +159,42 @@ Other integrations are configured in the dashboard: Telegram bot token and chat,
 
 The SIP settings endpoint invokes `/usr/bin/sudo /usr/local/sbin/oim-apply-sip` after saving credentials. That privileged helper is **not included** in this repository because PBX file paths, dial plan, carrier registration, and firewall rules are specific to each operator. Until you install and review your own root-owned helper and narrowly scoped sudoers rule, the SIP settings cannot be applied to Asterisk from the panel. Never permit the web service to run arbitrary commands as root.
 
+## Dashboard languages and call reports
+
+Use the language selector on the login screen or dashboard to choose Turkish, English, or Russian. The preference stays in that browser. Switching language preserves saved business text and current edits to the greeting and knowledge forms. On narrow screens, use the section selector in the header. See [dashboard languages](docs/dashboard-languages.md) for details and translation maintenance.
+
+In **Calls**, select a UTC date range, status, caller substring, and page size, then apply the filters. Previous and next controls reach older records. Summary cards cover every matching call, including rows on other pages. Refresh starts a new snapshot so newly arrived calls can appear.
+
+The CSV report downloads all matching call pages. It stops if any page fails, rather than downloading a partial report. The file also includes the latest 100 appointments for the selected tenant and states that separate coverage. See the [call-history API reference](docs/call-history-api.md) for query parameters, ordering, response fields, and snapshot limits.
+
 ## Tests
 
-The existing unit tests cover the first spoken greeting, language/text preservation, generic greeting fallback, and the order of the initial Realtime event. Run them from the repository root with:
+Install the Python dependencies, then run the API and voice-opening regression tests from the repository root:
 
 ```bash
 python -m unittest discover -s oim-mvp/tests -v
 ```
 
-The tests do not require provider keys, a PBX, or real phone calls.
+These tests use temporary databases and synthetic accounts. They cover authenticated requests, customer isolation, administrator permissions, contact mutations, call filters, pagination, full-result summaries, and the first Realtime greeting. Outbound provider requests are mocked.
+
+Dashboard checks require Node.js 22+ and pnpm 11.25.0:
+
+~~~sh
+pnpm install --frozen-lockfile
+pnpm test
+~~~
+
+They check translations, saved preferences, preservation of form values, pagination, complete report collection, and stale responses after switching tenants. The shipped dashboard remains plain static JavaScript and needs no Node runtime or build step.
+
+With Docker running, check the complete local HTTPS stack:
+
+~~~sh
+python scripts/smoke_compose.py
+~~~
+
+The smoke check creates its own disposable stack, signs in with synthetic credentials, verifies routing and the API's unprivileged user, then recreates containers to check database and encryption-key persistence. It removes only its own stack and volumes. No test needs provider keys, a PBX, or real calls.
+
+[GitHub Actions](.github/workflows/tests.yml) runs on pull requests and pushes to main. Stable jobs are **Regression (Python 3.11)**, **Regression (Python 3.13)**, and **Compose HTTPS smoke**. Regression jobs also run the dashboard checks on Node.js 22; all jobs run without repository secrets.
 
 ## Operations and data protection
 
@@ -156,16 +209,27 @@ The tests do not require provider keys, a PBX, or real phone calls.
 
 ```text
 oim-mvp/backend.py                 Python API, SQLite schema, integrations, Realtime handling
-oim-mvp/tests/                     Existing unit tests
+oim-mvp/tests/                     API, tenant-isolation, and voice-opening tests
 oim-ui/index.html                  Login and dashboard markup
 oim-ui/app.js                      Dashboard behavior and API calls
+oim-ui/call-history.js             Filters, pagination, summaries, and report collection
+oim-ui/i18n.js                     Browser language selection and text bindings
+oim-ui/locales.js                  Turkish, English, and Russian message catalog
+oim-ui/tests/                      Dashboard regression tests
 oim-ui/styles.css                  Dashboard styling
 oim-ui/login.css                   Login styling
 oim-ui/help.html                   Generic deployment help
 oim-ui/knowledge-*.md              Knowledge prompt and language templates
 deploy/                            Example systemd and Nginx configuration
+docs/                              Container, API, language guides, and synthetic screenshots
+scripts/                           Development certificate and Compose smoke check
+Dockerfile / Dockerfile.web         API and frontend images
+compose.yaml                       Persistent same-origin HTTPS stack
+.github/workflows/tests.yml         Python, dashboard, and container checks
 .env.example                       Safe configuration template with blank secrets
+.env.compose.example               Safe container configuration template
 requirements.txt                   Python package dependencies
+package.json / pnpm-lock.yaml       Locked dashboard test and formatting tools
 ```
 
 ## Contributing
@@ -175,4 +239,5 @@ Issues and pull requests are welcome. Before submitting, remove customer informa
 ## License
 
 Released under the MIT License. See [`LICENSE`](LICENSE).
+
 

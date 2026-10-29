@@ -1,0 +1,17 @@
+**
+!requirements.txt
+!oim-mvp/
+!oim-mvp/*.py
+!oim-mvp/tests/
+!oim-mvp/tests/*.py
+!oim-ui/
+!oim-ui/*.html
+!oim-ui/*.css
+!oim-ui/*.js
+!oim-ui/*.md
+!scripts/
+!scripts/*.py
+!deploy/
+!deploy/docker/
+!deploy/docker/nginx.conf
+
