@@ -181,7 +181,7 @@ function setView(view = "dashboard") {
     el.classList.toggle(
       "view-hidden",
       view === "dashboard"
-        ? !["agents", "calls"].includes(el.dataset.viewPanel)
+        ? !["agents", "calls", "system-flow"].includes(el.dataset.viewPanel)
         : el.dataset.viewPanel !== view,
     );
   });
@@ -208,6 +208,8 @@ function setView(view = "dashboard") {
     );
   const labels = {
     dashboard: "Genel Bakış",
+    "system-flow": "Sistem akışı",
+    integrations: "API bağlantıları",
     calls: "Çağrılar",
     "usage-costs": "Kullanım raporu",
     "live-monitoring": "Canlı izleme",
@@ -264,50 +266,9 @@ loginForm?.addEventListener("submit", async (event) => {
   }
 });
 checkSession();
-const providerForm = document.querySelector("#provider-form");
-const providerStatus = document.querySelector("#provider-status");
 async function loadProviders() {
-  try {
-    const r = await fetch("/api/admin/providers", {
-      credentials: "same-origin",
-    });
-    if (!r.ok) return;
-    const d = await r.json();
-    const active = d.items.find((x) => x.enabled) || d.items[0];
-    if (active) {
-      document.querySelector("#provider-name").value = active.provider;
-      document.querySelector("#provider-model").value = active.model || "";
-      document.querySelector("#provider-enabled").checked = active.enabled;
-      providerStatus.textContent = active.configured
-        ? `Kayıtlı anahtar: ${active.masked}`
-        : "Anahtar tanımlı değil";
-    }
-  } catch (_) {}
+  return window.AdminConsole?.refresh();
 }
-providerForm?.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  providerStatus.textContent = "Kaydediliyor…";
-  const payload = {
-    provider: document.querySelector("#provider-name").value,
-    model: document.querySelector("#provider-model").value,
-    api_key: document.querySelector("#provider-key").value,
-    enabled: document.querySelector("#provider-enabled").checked,
-  };
-  try {
-    const r = await fetch("/api/admin/providers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify(payload),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error);
-    document.querySelector("#provider-key").value = "";
-    providerStatus.textContent = `Kaydedildi (${d.provider.masked || "anahtar yok"})`;
-  } catch (e) {
-    providerStatus.textContent = e.message || "Kayıt başarısız";
-  }
-});
 loadProviders();
 function escapeHtml(value = "") {
   return String(value).replace(
@@ -319,6 +280,8 @@ function escapeHtml(value = "") {
   );
 }
 function applyUser(user) {
+  const changed =
+    currentUser?.id !== user?.id || currentUser?.role !== user?.role;
   currentUser = user || null;
   document.body.dataset.role = user?.role || "guest";
   document.querySelectorAll("[data-admin-only]").forEach((el) => {
@@ -354,8 +317,19 @@ function applyUser(user) {
     if (greeting) greeting.textContent = `Günaydın, ${displayName}`;
     if (setupName) setupName.textContent = `${displayName} sesli ajanı`;
     if (agentName) agentName.textContent = displayName;
-    if (["#sip", "#settings"].includes(location.hash)) setView("dashboard");
+    if (
+      ["#sip", "#settings", "#integrations", "#system-flow"].includes(
+        location.hash,
+      )
+    )
+      setView("dashboard");
   }
+  if (changed)
+    window.dispatchEvent(
+      new CustomEvent("oim:sessionchange", {
+        detail: { role: user?.role || "guest" },
+      }),
+    );
 }
 function formatMoment(value) {
   if (!value) return "—";

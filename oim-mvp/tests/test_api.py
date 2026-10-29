@@ -33,6 +33,7 @@ class ApiTestCase(unittest.TestCase):
         self.addCleanup(self.secret_patch.stop)
         backend.SESSIONS.clear()
         backend.LOGIN_ATTEMPTS.clear()
+        backend.PROVIDER_LIMITS.clear()
         self.external_calls = patch.object(backend.urllib.request, "urlopen", side_effect=AssertionError("External provider calls are forbidden in API tests"))
         self.external_calls.start()
         self.addCleanup(self.external_calls.stop)

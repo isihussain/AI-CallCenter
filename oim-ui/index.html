@@ -18,8 +18,9 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
     />
-    <link rel="stylesheet" href="styles.css?v=20261029-operations" />
+    <link rel="stylesheet" href="styles.css?v=20261029-admin" />
     <link rel="stylesheet" href="login.css" />
+    <link rel="stylesheet" href="admin-console.css?v=20261029-admin" />
   </head>
   <body>
     <section
@@ -174,6 +175,27 @@
           </div>
           <div class="nav-group">
             <span class="nav-heading">YÖNETİM</span>
+            <a
+              class="nav-item"
+              href="#system-flow"
+              data-view="system-flow"
+              data-admin-only=""
+              ><span class="nav-icon"
+                ><i
+                  class="fa-solid fa-diagram-project"
+                  aria-hidden="true"
+                ></i></span
+              >Sistem akışı</a
+            >
+            <a
+              class="nav-item"
+              href="#integrations"
+              data-view="integrations"
+              data-admin-only=""
+              ><span class="nav-icon"
+                ><i class="fa-solid fa-plug" aria-hidden="true"></i></span
+              >API bağlantıları</a
+            >
             <a class="nav-item" href="#sip" data-view="sip" data-admin-only=""
               ><span class="nav-icon"
                 ><i class="fa-solid fa-network-wired" aria-hidden="true"></i
@@ -197,7 +219,9 @@
               Telegram</a
             >
             <a class="nav-item" href="#privacy" data-view="privacy"
-              ><span class="nav-icon"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></span>
+              ><span class="nav-icon"
+                ><i class="fa-solid fa-shield-halved" aria-hidden="true"></i
+              ></span>
               Veri saklama</a
             >
             <a
@@ -298,6 +322,12 @@
               </option>
               <option value="customers" data-admin-only="">Müşteriler</option>
               <option value="sip" data-admin-only="">SIP Bağlantıları</option>
+              <option value="system-flow" data-admin-only="">
+                Sistem akışı
+              </option>
+              <option value="integrations" data-admin-only="">
+                API bağlantıları
+              </option>
               <option value="settings" data-admin-only="">Ayarlar</option>
               <option value="help">Yardım Merkezi</option>
             </select></label
@@ -338,6 +368,187 @@
             </div>
           </section>
 
+          <section
+            id="system-flow"
+            class="panel flow-panel"
+            data-view-panel="system-flow"
+            data-admin-only=""
+            hidden
+          >
+            <div class="flow-heading">
+              <div>
+                <p class="eyebrow">OPERASYON MERKEZİ</p>
+                <h2>Sistem akışı</h2>
+                <p>
+                  Çağrının yolunu, AI bağlantılarını ve bekleyen işleri tek
+                  ekranda görün.
+                </p>
+              </div>
+              <a
+                class="button primary"
+                href="#integrations"
+                data-console-view="integrations"
+                >API bağlantıları
+                <i
+                  class="fa-solid fa-arrow-up-right-from-square"
+                  aria-hidden="true"
+                ></i
+              ></a>
+            </div>
+            <div id="flow-metrics" class="flow-metrics"></div>
+            <div class="flow-toolbar">
+              <span class="flow-scope"
+                >Tüm müşteriler · günlük sayaçlar UTC</span
+              >
+              <div class="flow-controls" id="flow-zoom-controls">
+                <button
+                  class="button outline"
+                  id="flow-zoom-out"
+                  type="button"
+                  aria-label="Uzaklaştır"
+                >
+                  −</button
+                ><button class="button outline" id="flow-fit" type="button">
+                  Sığdır</button
+                ><button
+                  class="button outline"
+                  id="flow-zoom-in"
+                  type="button"
+                  aria-label="Yakınlaştır"
+                >
+                  +
+                </button>
+              </div>
+              <div class="flow-controls">
+                <button class="button outline" id="flow-refresh" type="button">
+                  Yenile</button
+                ><button
+                  class="button outline"
+                  id="flow-pause"
+                  type="button"
+                  aria-pressed="false"
+                >
+                  Otomatik yenilemeyi duraklat</button
+                ><button
+                  class="button outline"
+                  id="flow-toggle"
+                  type="button"
+                  aria-pressed="false"
+                >
+                  Liste görünümü
+                </button>
+              </div>
+            </div>
+            <div class="flow-workspace">
+              <div
+                class="flow-viewport"
+                id="flow-viewport"
+                tabindex="0"
+                aria-label="Sistem bağlantı haritası"
+              >
+                <div class="flow-stage" id="flow-stage">
+                  <span class="flow-lane lane-lab">AI VE SES DENEMESİ</span
+                  ><span class="flow-lane lane-phone">TELEFON AKIŞI</span
+                  ><svg
+                    id="flow-wires"
+                    viewBox="0 0 1210 640"
+                    aria-hidden="true"
+                  ></svg>
+                  <div id="flow-nodes"></div>
+                </div>
+              </div>
+              <ol class="flow-list" id="flow-list" hidden></ol>
+              <aside
+                class="flow-inspector"
+                id="flow-inspector"
+                aria-label="Seçili bağlantı"
+              >
+                <p>Bir düğüm seçin.</p>
+              </aside>
+            </div>
+            <div class="flow-footer">
+              <span
+                >Hareketli noktalar akış yönünü gösterir. Durumlar kayıtlı
+                ayarlardır; canlı paket izlemesi değildir.</span
+              ><span id="flow-status" role="status" aria-live="polite"
+                >Yükleniyor…</span
+              >
+            </div>
+          </section>
+          <section
+            id="integrations"
+            class="panel integrations-panel"
+            data-view-panel="integrations"
+            data-admin-only=""
+            hidden
+          >
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">BAĞLANTILAR</p>
+                <h2>Ses ve zeka</h2>
+                <p>
+                  Her bağlantının anahtarını ve modelini ayrı yönetin.
+                  Anahtarlar sunucuda şifrelenir.
+                </p>
+              </div>
+              <a
+                class="button outline"
+                href="#system-flow"
+                data-console-view="system-flow"
+                >Akışı görüntüle</a
+              >
+            </div>
+            <div class="integration-note">
+              Telefon sesi şu anda OpenAI Realtime üzerinden yürür. ElevenLabs,
+              aşağıdaki ses denemesinde kullanılır; telefon görüşmesi için
+              ayrıca ses köprüsü gerekir.
+            </div>
+            <div id="provider-cards" class="provider-cards"></div>
+            <div class="provider-lab">
+              <div>
+                <p class="eyebrow">DENE VE DİNLE</p>
+                <h3>AI → ElevenLabs</h3>
+                <p>
+                  Metin yazın, OpenAI AI yanıtını oluşturun ve ElevenLabs
+                  sesiyle dinleyin. Denemeler sağlayıcı kullanımına
+                  yansıyabilir.
+                </p>
+              </div>
+              <form id="ai-lab-form">
+                <label
+                  >Deneme metni<textarea
+                    id="ai-lab-input"
+                    maxlength="1000"
+                    rows="3"
+                    required
+                  >
+Merhaba, size nasıl yardımcı olabilirim?</textarea
+                  >
+                </label>
+                <div class="lab-actions">
+                  <button class="button primary" type="submit">
+                    AI yanıtı oluştur</button
+                  ><button
+                    class="button secondary"
+                    type="button"
+                    id="eleven-preview"
+                  >
+                    Metni seslendir
+                  </button>
+                </div>
+              </form>
+              <label
+                >Yanıt / seslendirilecek metin<textarea
+                  id="ai-lab-output"
+                  maxlength="500"
+                  rows="4"
+                  placeholder="AI yanıtı burada görünür. Doğrudan metin de yazabilirsiniz."
+                ></textarea>
+              </label>
+              <audio id="eleven-audio" controls hidden preload="none"></audio>
+              <p id="ai-lab-status" role="status" aria-live="polite"></p>
+            </div>
+          </section>
           <section
             class="metric-grid"
             aria-label="Özet metrikler"
@@ -1257,30 +1468,12 @@
                 </p>
               </div>
             </div>
-            <form id="provider-form" class="provider-form">
-              <label
-                >Sağlayıcı<select id="provider-name">
-                  <option value="openai">OpenAI Realtime</option>
-                  <option value="elevenlabs">ElevenLabs</option>
-                  <option value="deepgram">Deepgram</option>
-                </select></label
-              ><label
-                >Model<input
-                  id="provider-model"
-                  placeholder="gpt-realtime" /></label
-              ><label
-                >API anahtarı<input
-                  id="provider-key"
-                  type="password"
-                  autocomplete="new-password"
-                  placeholder="Değiştirmek için girin" /></label
-              ><label class="check"
-                ><input id="provider-enabled" type="checkbox" /> Bu sağlayıcıyı
-                aktif kullan</label
-              ><button class="button primary" type="submit">
-                Güvenli şekilde kaydet</button
-              ><span id="provider-status" class="form-note"></span>
-            </form>
+            <a
+              class="button primary"
+              href="#integrations"
+              data-console-view="integrations"
+              >API bağlantılarını yönet</a
+            >
             <hr />
             <div class="panel-heading">
               <div>
@@ -1321,10 +1514,11 @@
     </div>
     <div class="toast" role="status" aria-live="polite"></div>
 
-    <script src="locales.js?v=20261029-operations"></script>
-    <script src="i18n.js?v=20261029-operations"></script>
-    <script src="call-history.js?v=20261029-operations"></script>
-    <script src="app.js?v=20261029-operations"></script>
-    <script src="operations.js?v=20261029-operations"></script>
+    <script src="locales.js?v=20261029-admin"></script>
+    <script src="i18n.js?v=20261029-admin"></script>
+    <script src="call-history.js?v=20261029-admin"></script>
+    <script src="app.js?v=20261029-admin"></script>
+    <script src="operations.js?v=20261029-admin"></script>
+    <script src="admin-console.js?v=20261029-admin"></script>
   </body>
 </html>
