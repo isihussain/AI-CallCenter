@@ -660,6 +660,113 @@ def usage_report(conn, session, query):
     clean(by_day); clean(by_tenant)
     return {'filters':{'tenant_id':tenant_id,'date_from':parsed['date_from'].isoformat(),'date_to':parsed['date_to'].isoformat(),'timezone':'UTC'},'daily':list(by_day.values()),'tenants':list(by_tenant.values())}
 
+def analytics_summary(conn, session, query):
+    tenant_id = selected_tenant(session, query)
+    dates = {}
+    for name in ('date_from', 'date_to'):
+        value = query_value(query, name).strip()
+        if value:
+            if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+                raise ValueError(f'{name} must use YYYY-MM-DD')
+            try:
+                dates[name] = date.fromisoformat(value)
+            except ValueError:
+                raise ValueError(f'{name} must be a valid calendar date') from None
+    if dates.get('date_from', date.min) > dates.get('date_to', date.max):
+        raise ValueError('date_from must not be later than date_to')
+
+    conditions = []
+    params = []
+    if tenant_id:
+        conditions.append('c.tenant_id=?')
+        params.append(tenant_id)
+    else:
+        conditions.append('c.tenant_id IN (SELECT id FROM tenants WHERE role="customer")')
+
+    for name, comparison in (('date_from', '>='), ('date_to', '<')):
+        if name in dates:
+            day = dates[name]
+            try:
+                if name == 'date_to':
+                    day += timedelta(days=1)
+                timestamp = int(datetime.combine(day, datetime.min.time(), timezone.utc).timestamp())
+            except (ValueError, OverflowError, OSError):
+                raise ValueError(f'{name} is outside the supported date range') from None
+            conditions.append(f'c.started_at{comparison}?')
+            params.append(timestamp)
+
+    where = ' AND '.join(conditions)
+    joined = 'FROM calls c LEFT JOIN call_usage u ON u.call_id=c.call_id WHERE ' + where
+
+    overall_sql = '''SELECT
+        COUNT(*) AS total_calls,
+        COALESCE(SUM(CASE WHEN c.status='ended' THEN 1 ELSE 0 END), 0) AS completed_calls,
+        COALESCE(SUM(CASE WHEN c.status='failed' THEN 1 ELSE 0 END), 0) AS failed_calls,
+        COALESCE(SUM(CASE WHEN c.status='active' THEN 1 ELSE 0 END), 0) AS active_calls,
+        COALESCE(SUM(CASE WHEN c.status='incoming' THEN 1 ELSE 0 END), 0) AS incoming_calls,
+        COALESCE(SUM(CASE WHEN c.status='rejected_no_credit' THEN 1 ELSE 0 END), 0) AS rejected_calls,
+        COALESCE(SUM(CASE WHEN c.status='ended' THEN MAX(0, COALESCE(c.ended_at, c.started_at) - c.started_at) ELSE 0 END), 0) AS total_duration_seconds,
+        COALESCE(AVG(CASE WHEN c.status='ended' AND c.ended_at IS NOT NULL THEN MAX(0, c.ended_at - c.started_at) END), 0) AS avg_duration_seconds,
+        COALESCE(MAX(CASE WHEN c.status='ended' AND c.ended_at IS NOT NULL THEN MAX(0, c.ended_at - c.started_at) END), 0) AS max_duration_seconds,
+        COALESCE(SUM(c.billed_credits), 0) AS billed_credits,
+        COALESCE(SUM(u.estimated_openai_usd), 0) AS estimated_openai_usd,
+        COALESCE(SUM(u.total_tokens), 0) AS total_tokens,
+        COALESCE(SUM(u.input_tokens), 0) AS input_tokens,
+        COALESCE(SUM(u.output_tokens), 0) AS output_tokens,
+        COALESCE(SUM(u.input_audio_tokens), 0) AS input_audio_tokens,
+        COALESCE(SUM(u.output_audio_tokens), 0) AS output_audio_tokens
+    ''' + joined
+
+    overall = dict(conn.execute(overall_sql, params).fetchone())
+    completed = int(overall['completed_calls'])
+    failed = int(overall['failed_calls'])
+    finished = completed + failed
+
+    avg_dur = float(overall.pop('avg_duration_seconds', 0))
+    overall['average_duration_seconds'] = round(avg_dur, 1)
+    overall['billed_credits'] = round(float(overall['billed_credits']), 2)
+    overall['estimated_openai_usd'] = round(float(overall['estimated_openai_usd']), 6)
+    overall['success_rate_percent'] = round((completed / finished) * 100, 1) if finished > 0 else 100.0
+
+    by_status = {
+        'ended': overall['completed_calls'],
+        'failed': overall['failed_calls'],
+        'active': overall['active_calls'],
+        'incoming': overall['incoming_calls'],
+        'rejected_no_credit': overall['rejected_calls']
+    }
+
+    outcome_rows = conn.execute(
+        '''SELECT COALESCE(r.outcome, 'unreviewed') AS outcome, COUNT(*) AS count
+           FROM calls c
+           LEFT JOIN call_reviews r ON r.call_id=c.call_id AND r.tenant_id=c.tenant_id
+           WHERE ''' + where + ''' GROUP BY outcome ORDER BY count DESC''',
+        params
+    ).fetchall()
+    by_outcome = {row['outcome']: row['count'] for row in outcome_rows}
+
+    appt_sql = 'SELECT COUNT(*) FROM appointments a JOIN calls c ON c.call_id=a.call_id AND c.tenant_id=a.tenant_id WHERE ' + where
+    appt_count = conn.execute(appt_sql, params).fetchone()[0]
+
+    cb_sql = 'SELECT COUNT(*) FROM callback_requests cb JOIN calls c ON c.call_id=cb.call_id AND c.tenant_id=cb.tenant_id WHERE ' + where
+    cb_count = conn.execute(cb_sql, params).fetchone()[0]
+
+    return {
+        'tenant_id': tenant_id or None,
+        'filters': {
+            'date_from': dates['date_from'].isoformat() if 'date_from' in dates else None,
+            'date_to': dates['date_to'].isoformat() if 'date_to' in dates else None,
+            'timezone': 'UTC'
+        },
+        'kpis': overall,
+        'by_status': by_status,
+        'by_outcome': by_outcome,
+        'conversion': {
+            'appointments_count': appt_count,
+            'callbacks_count': cb_count
+        }
+    }
+
 def purge_expired_transcripts(timestamp=None):
     timestamp=timestamp or now(); conn=db(); results=[]
     try:
@@ -788,6 +895,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/usage-report':
             try: return self.send_json(usage_report(conn,s,query))
             except (ValueError,OverflowError,OSError) as error: return self.send_json({'error':str(error)},400)
+        if path == '/api/analytics/summary':
+            try: return self.send_json(analytics_summary(conn,s,query))
+            except (ValueError,OverflowError,OSError) as error: return self.send_json({'error':str(error),'code':'invalid_analytics_query'},400)
         if path == '/api/callbacks':
             tid=selected_tenant(s,query)
             if not tid: return self.send_json({'items':[]})

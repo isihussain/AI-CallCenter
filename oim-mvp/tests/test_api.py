@@ -87,7 +87,7 @@ class ApiTestCase(unittest.TestCase):
 
 class TenantIsolationTests(ApiTestCase):
     def test_protected_endpoints_require_a_session(self):
-        for path in ("/api/me", "/api/calls", "/api/appointments", "/api/contacts", "/api/knowledge", "/api/tenant/ai-settings", "/api/readiness", "/api/live-calls", "/api/usage-report", "/api/callbacks", "/api/privacy", "/api/admin/tenants"):
+        for path in ("/api/me", "/api/calls", "/api/appointments", "/api/contacts", "/api/knowledge", "/api/tenant/ai-settings", "/api/readiness", "/api/live-calls", "/api/usage-report", "/api/analytics/summary", "/api/callbacks", "/api/privacy", "/api/admin/tenants"):
             with self.subTest(path=path):
                 self.assertEqual(self.request("GET", path, tenant=None)[0], 401)
         self.assertEqual(self.request("POST", "/api/tenant/ai-settings", {"greeting":"Test"}, tenant=None)[0], 401)
@@ -376,6 +376,71 @@ class OperationsFeatureTests(ApiTestCase):
         self.assertEqual(call["status"],"failed")
         self.assertEqual(call["failure_code"],"provider_error")
         self.assertNotIn("api.openai.com",call["failure_message"])
+
+    def test_analytics_summary_kpis_and_tenant_isolation(self):
+        with closing(backend.db()) as conn, conn:
+            conn.execute("INSERT INTO calls(tenant_id,call_id,caller,status,started_at,ended_at,billed_credits) VALUES(2,'call-analytics-failed','caller-1','failed',300,330,0.0)")
+            conn.execute("INSERT INTO call_usage(call_id,input_tokens,output_tokens,total_tokens,estimated_openai_usd,updated_at) VALUES('call-2',100,50,150,0.005,100)")
+            conn.execute("INSERT INTO call_reviews(call_id,tenant_id,outcome,summary,updated_at) VALUES('call-2',2,'resolved','Resolved inquiry',100)")
+            conn.execute("INSERT INTO appointments(tenant_id,call_id,customer_name,phone,service,appointment_at,created_at) VALUES(2,'call-2','Customer A','555-1234','Demo Service','2026-11-05T10:00:00Z',100)")
+            conn.execute("INSERT INTO callback_requests(tenant_id,call_id,phone,reason,status,created_at) VALUES(2,'call-2','555-1234','Follow-up','pending',100)")
+
+        # Customer session (tenant 2)
+        customer = self.get("/api/analytics/summary", tenant=2)
+        self.assertEqual(customer["tenant_id"], 2)
+        kpis = customer["kpis"]
+        self.assertEqual(kpis["total_calls"], 2)
+        self.assertEqual(kpis["completed_calls"], 1)
+        self.assertEqual(kpis["failed_calls"], 1)
+        self.assertEqual(kpis["total_duration_seconds"], 120)
+        self.assertEqual(kpis["average_duration_seconds"], 120.0)
+        self.assertEqual(kpis["success_rate_percent"], 50.0)
+        self.assertEqual(kpis["total_tokens"], 150)
+        self.assertEqual(kpis["input_tokens"], 100)
+        self.assertEqual(kpis["output_tokens"], 50)
+        self.assertEqual(kpis["estimated_openai_usd"], 0.005)
+
+        self.assertEqual(customer["by_status"]["ended"], 1)
+        self.assertEqual(customer["by_status"]["failed"], 1)
+        self.assertEqual(customer["by_outcome"]["resolved"], 1)
+        self.assertEqual(customer["by_outcome"]["unreviewed"], 1)
+        self.assertEqual(customer["conversion"]["appointments_count"], 1)
+        self.assertEqual(customer["conversion"]["callbacks_count"], 1)
+
+        # Customer cannot override scope
+        spoofed = self.get("/api/analytics/summary?tenant_id=3", tenant=2)
+        self.assertEqual(spoofed["tenant_id"], 2)
+        self.assertEqual(spoofed["kpis"]["total_calls"], 2)
+
+        # Admin session (tenant 1) scoping to tenant 2
+        admin_scoped = self.get("/api/analytics/summary?tenant_id=2", tenant=1)
+        self.assertEqual(admin_scoped["tenant_id"], 2)
+        self.assertEqual(admin_scoped["kpis"]["total_calls"], 2)
+
+        # Admin session global aggregate (tenant_id omitted/0)
+        admin_global = self.get("/api/analytics/summary", tenant=1)
+        self.assertIsNone(admin_global["tenant_id"])
+        self.assertEqual(admin_global["kpis"]["total_calls"], 3) # call-2, call-analytics-failed, call-3
+
+    def test_analytics_summary_date_filtering_and_validation(self):
+        # Jan 1 1970 UTC covers timestamps 100 and 300
+        match = self.get("/api/analytics/summary?date_from=1970-01-01&date_to=1970-01-01", tenant=2)
+        self.assertEqual(match["kpis"]["total_calls"], 1) # call-2 at timestamp 100
+
+        # Out-of-range date filter returns 0 calls
+        no_match = self.get("/api/analytics/summary?date_from=2026-01-01&date_to=2026-01-02", tenant=2)
+        self.assertEqual(no_match["kpis"]["total_calls"], 0)
+        self.assertEqual(no_match["kpis"]["average_duration_seconds"], 0.0)
+
+        # Invalid date format returns 400
+        status, err, _ = self.request("GET", "/api/analytics/summary?date_from=bad-date", tenant=2)
+        self.assertEqual(status, 400)
+        self.assertEqual(err.get("code"), "invalid_analytics_query")
+
+        # Inverted date range returns 400
+        status_inv, err_inv, _ = self.request("GET", "/api/analytics/summary?date_from=2026-10-30&date_to=2026-10-01", tenant=2)
+        self.assertEqual(status_inv, 400)
+        self.assertEqual(err_inv.get("code"), "invalid_analytics_query")
 
 
 if __name__ == "__main__":
