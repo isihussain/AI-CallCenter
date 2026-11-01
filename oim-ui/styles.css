@@ -582,6 +582,10 @@ a {
   gap: 15px;
   margin-bottom: 18px;
 }
+.metric-grid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-top: 15px;
+}
 .metric-card,
 .panel {
   background: #fff;
@@ -1355,7 +1359,8 @@ td {
   display: none !important;
 }
 .page-content[data-view-mode="detail"] .welcome-row,
-.page-content[data-view-mode="detail"] .metric-grid {
+.page-content[data-view-mode="detail"] > .metric-grid,
+.page-content[data-view-mode="detail"] [data-dashboard-only] {
   display: none !important;
 }
 #settings[data-active-view="telegram"] > *:not(#telegram) {

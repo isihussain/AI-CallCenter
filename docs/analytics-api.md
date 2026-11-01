@@ -69,3 +69,10 @@ Invalid date strings and reversed date ranges return HTTP 400 with `code: "inval
 2. **Success Rate:** `success_rate_percent` divides `completed_calls` by finished calls (`completed_calls + failed_calls`). When no finished calls exist in the query window, it evaluates to 100.0%.
 3. **Usage & Cost:** Token totals and estimated USD cost aggregate records from `call_usage` matching calls within the filtered window.
 4. **Conversions:** `conversion.appointments_count` and `conversion.callbacks_count` count appointment and callback rows linked by `call_id` and owned by the target tenant.
+
+## Dashboard integration
+
+The web interface in `oim-ui` renders this endpoint in the dedicated `#analytics` view (`data-view-panel="analytics"`):
+1. **Key Performance Indicators:** Renders total call count, completion success rate, average call duration, conversions (appointments and callbacks), total token volume, and estimated OpenAI cost.
+2. **Breakdowns:** Displays status frequency tables (`ended`, `failed`, `active`, `incoming`, `rejected_no_credit`) alongside call review outcome categories.
+3. **Filtering and Export:** Supports date range constraints (`date_from`, `date_to` in UTC) and tenant selection for administrators, with CSV download via `#analytics-export`.

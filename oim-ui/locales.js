@@ -2338,6 +2338,171 @@
       "Invalid Voice ID.",
       "Недействительный Voice ID.",
     ],
+    [
+      "Analitik & KPI",
+      "Analytics & KPI",
+      "Аналитика и KPI",
+    ],
+    [
+      "Çağrı analitiği ve performans",
+      "Call analytics and performance",
+      "Аналитика и показатели звонков",
+    ],
+    [
+      "Çağrı başarı oranları, süreler, dönüşüm ve model maliyet özetleri.",
+      "Call success rates, durations, conversion, and model cost summaries.",
+      "Показатели завершения звонков, длительность, конверсия и затраты моделей.",
+    ],
+    [
+      "Analitik",
+      "Analytics",
+      "Аналитика",
+    ],
+    [
+      "Analitiği getir",
+      "Load analytics",
+      "Загрузить аналитику",
+    ],
+    [
+      "Özet yükleniyor…",
+      "Loading summary…",
+      "Загрузка сводки…",
+    ],
+    [
+      "BAŞARI ORANI",
+      "SUCCESS RATE",
+      "УСПЕШНОСТЬ",
+    ],
+    [
+      "tamamlanan / sonlanan",
+      "completed / finished",
+      "завершено / окончено",
+    ],
+    [
+      "ORT. SÜRE",
+      "AVG DURATION",
+      "СРЕДНЯЯ ДЛИТ.",
+    ],
+    [
+      "DÖNÜŞÜMLER",
+      "CONVERSIONS",
+      "КОНВЕРСИИ",
+    ],
+    [
+      "randevu + geri arama",
+      "appointment + callback",
+      "встреча + обратный звонок",
+    ],
+    [
+      "TAHMİNİ USD",
+      "ESTIMATED USD",
+      "ОЦЕНКА USD",
+    ],
+    [
+      "OpenAI maliyeti",
+      "OpenAI cost",
+      "Затраты OpenAI",
+    ],
+    [
+      "Çağrı durum dağılımı",
+      "Call status breakdown",
+      "Распределение статусов звонков",
+    ],
+    [
+      "Seçili dönemdeki çağrıların sonuç durumları",
+      "Result statuses for calls in the selected period",
+      "Итоговые статусы звонков за выбранный период",
+    ],
+    [
+      "Değerlendirme sonuçları",
+      "Review outcomes",
+      "Результаты оценки",
+    ],
+    [
+      "AI ve operatör inceleme etiketleri",
+      "AI and agent review labels",
+      "Метки проверки AI и оператора",
+    ],
+    [
+      "ÇAĞRI ADEDİ",
+      "CALL COUNT",
+      "КОЛИЧЕСТВО ЗВОНКОВ",
+    ],
+    [
+      "SONUÇ",
+      "OUTCOME",
+      "ИТОГ",
+    ],
+    [
+      "{0}–{1} UTC · {2} toplam çağrı · Başarı oranı: %{3}",
+      "{0}–{1} UTC · {2} total calls · Success rate: {3}%",
+      "{0}–{1} UTC · Всего звонков: {2} · Успешность: {3}%",
+    ],
+    [
+      "METRİK",
+      "METRIC",
+      "ПОКАЗАТЕЛЬ",
+    ],
+    [
+      "DEĞER",
+      "VALUE",
+      "ЗНАЧЕНИЕ",
+    ],
+    [
+      "Toplam çağrı",
+      "Total calls",
+      "Всего звонков",
+    ],
+    [
+      "Tamamlanan çağrı",
+      "Completed calls",
+      "Завершённые звонки",
+    ],
+    [
+      "Başarısız çağrı",
+      "Failed calls",
+      "Неудачные звонки",
+    ],
+    [
+      "Başarı oranı (%)",
+      "Success rate (%)",
+      "Успешность (%)",
+    ],
+    [
+      "Ortalama süre (sn)",
+      "Average duration (s)",
+      "Средняя длительность (сек)",
+    ],
+    [
+      "Toplam süre (sn)",
+      "Total duration (s)",
+      "Общая длительность (сек)",
+    ],
+    [
+      "Faturalandırılan kredi",
+      "Billed credits",
+      "Списанные кредиты",
+    ],
+    [
+      "Tahmini OpenAI maliyeti (USD)",
+      "Estimated OpenAI cost (USD)",
+      "Оценочные затраты OpenAI (USD)",
+    ],
+    [
+      "Toplam token",
+      "Total tokens",
+      "Всего токенов",
+    ],
+    [
+      "Alınan randevular",
+      "Booked appointments",
+      "Запланированные встречи",
+    ],
+    [
+      "Geri arama talepleri",
+      "Callback requests",
+      "Запросы на обратный звонок",
+    ],
   ];
   for (const [tr, en, ru] of adminMessages) {
     catalogs.tr[tr] = tr;

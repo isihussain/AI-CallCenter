@@ -49,6 +49,32 @@ test("operations panels load tenant-scoped readiness, monitoring, usage, callbac
           },
         ],
       },
+      "/api/analytics/summary": {
+        tenant_id: 2,
+        filters: { date_from: "2026-10-01", date_to: "2026-10-30", timezone: "UTC" },
+        kpis: {
+          total_calls: 10,
+          completed_calls: 9,
+          failed_calls: 1,
+          active_calls: 0,
+          incoming_calls: 0,
+          rejected_calls: 0,
+          total_duration_seconds: 540,
+          average_duration_seconds: 60.0,
+          max_duration_seconds: 120,
+          billed_credits: 5.5,
+          estimated_openai_usd: 0.052,
+          total_tokens: 3500,
+          input_tokens: 2000,
+          output_tokens: 1500,
+          input_audio_tokens: 0,
+          output_audio_tokens: 0,
+          success_rate_percent: 90.0,
+        },
+        by_status: { ended: 9, failed: 1, active: 0, incoming: 0, rejected_no_credit: 0 },
+        by_outcome: { resolved: 8, unresolved: 1 },
+        conversion: { appointments_count: 2, callbacks_count: 1 },
+      },
       "/api/privacy": {
         transcript_retention_days: 45,
         last_purged_at: null,
@@ -81,7 +107,12 @@ test("operations panels load tenant-scoped readiness, monitoring, usage, callbac
   assert.match(env.document.querySelector("#usage-daily-body").textContent, /No usage data/);
   assert.match(env.document.querySelector("#callbacks-body").textContent, /\+1 555 111 2222/);
   assert.equal(env.document.querySelector("#retention-days").value, "45");
+  assert.equal(env.document.querySelector("#analytics-total-calls").textContent, "10");
+  assert.equal(env.document.querySelector("#analytics-success-rate").textContent, "90%");
+  assert.equal(env.document.querySelector("#analytics-avg-duration").textContent, "60s");
+  assert.equal(env.document.querySelector("#analytics-conversions").textContent, "3");
   assert.ok(requests.some((entry) => entry.pathName === "/api/readiness"));
   assert.ok(requests.some((entry) => entry.pathName === "/api/callbacks"));
+  assert.ok(requests.some((entry) => entry.pathName === "/api/analytics/summary"));
   assert.ok(requests.every((entry) => !entry.url.includes("tenant_id=3")));
 });
