@@ -9,6 +9,7 @@
   let context = null;
   let tenantOptions = [];
   let latestUsage = null;
+  let latestAnalytics = null;
   let requestSequence = 0;
   let lastLiveSignature = null;
   const dateInput = (date) => date.toISOString().slice(0, 10);
@@ -63,6 +64,22 @@
       : "";
     $("#usage-tenant-heading").hidden = false;
     $("#usage-tenant-table").hidden = false;
+  }
+  function fillAnalyticsTenants() {
+    const select = $("#analytics-tenant");
+    if (!select) return;
+    const isAdmin = context?.role === "admin";
+    if (select.closest("label")) select.closest("label").hidden = !isAdmin;
+    if (!isAdmin) return;
+    const previous = select.value;
+    select.replaceChildren(new Option(t("Tüm müşteriler"), ""));
+    for (const tenant of tenantOptions)
+      select.add(new Option(tenant.name, String(tenant.id)));
+    select.value = tenantOptions.some(
+      (tenant) => String(tenant.id) === previous,
+    )
+      ? previous
+      : "";
   }
   function renderReadiness(data) {
     const labels = {
@@ -329,6 +346,106 @@
       status("#usage-status", error.message);
     }
   }
+  function analyticsQuery() {
+    const query = new URLSearchParams();
+    if (context?.role === "admin" && $("#analytics-tenant")?.value)
+      query.set("tenant_id", $("#analytics-tenant").value);
+    const from = $("#analytics-date-from")?.value,
+      to = $("#analytics-date-to")?.value;
+    if (from) query.set("date_from", from);
+    if (to) query.set("date_to", to);
+    return query.toString() ? `?${query}` : "";
+  }
+  function renderAnalytics(data) {
+    latestAnalytics = data;
+    const kpis = data.kpis || {};
+    const statusCounts = data.by_status || {};
+    const outcomeCounts = data.by_outcome || {};
+    const conv = data.conversion || {};
+
+    const money = (value) =>
+      root.OIMI18n.number(value || 0, {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 4,
+        maximumFractionDigits: 4,
+      });
+
+    $("#analytics-total-calls").textContent = root.OIMI18n.number(kpis.total_calls || 0);
+    $("#analytics-success-rate").textContent = `${kpis.success_rate_percent ?? 100}%`;
+    $("#analytics-avg-duration").textContent = `${kpis.average_duration_seconds || 0}s`;
+    $("#analytics-conversions").textContent = root.OIMI18n.number(
+      (conv.appointments_count || 0) + (conv.callbacks_count || 0)
+    );
+    $("#analytics-total-tokens").textContent = root.OIMI18n.number(kpis.total_tokens || 0);
+    $("#analytics-openai-usd").textContent = money(kpis.estimated_openai_usd);
+
+    status(
+      "#analytics-status",
+      t(
+        "{0}–{1} UTC · {2} toplam çağrı · Başarı oranı: %{3}",
+        {
+          0: data.filters?.date_from || t("Başlangıç"),
+          1: data.filters?.date_to || t("Güncel"),
+          2: root.OIMI18n.number(kpis.total_calls || 0),
+          3: kpis.success_rate_percent ?? 100,
+        }
+      )
+    );
+
+    const statusBody = $("#analytics-status-body");
+    if (statusBody) {
+      statusBody.replaceChildren();
+      const statusLabels = {
+        ended: t("Tamamlandı"),
+        failed: t("Başarısız"),
+        active: t("Aktif"),
+        incoming: t("Gelen"),
+        rejected_no_credit: t("Kredi yetersiz"),
+      };
+      for (const [key, label] of Object.entries(statusLabels)) {
+        const count = statusCounts[key] || 0;
+        const tr = document.createElement("tr");
+        const tdKey = document.createElement("td");
+        tdKey.textContent = label;
+        const tdVal = document.createElement("td");
+        tdVal.textContent = root.OIMI18n.number(count);
+        tr.append(tdKey, tdVal);
+        statusBody.append(tr);
+      }
+    }
+
+    const outcomeBody = $("#analytics-outcome-body");
+    if (outcomeBody) {
+      outcomeBody.replaceChildren();
+      const entries = Object.entries(outcomeCounts);
+      if (entries.length) {
+        for (const [outcome, count] of entries) {
+          const tr = document.createElement("tr");
+          const tdKey = document.createElement("td");
+          tdKey.textContent = outcome;
+          const tdVal = document.createElement("td");
+          tdVal.textContent = root.OIMI18n.number(count);
+          tr.append(tdKey, tdVal);
+          outcomeBody.append(tr);
+        }
+      } else {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 2;
+        td.textContent = t("Veri yok");
+        tr.append(td);
+        outcomeBody.append(tr);
+      }
+    }
+  }
+  async function loadAnalytics() {
+    try {
+      renderAnalytics(await request("/api/analytics/summary" + analyticsQuery()));
+    } catch (error) {
+      status("#analytics-status", error.message);
+    }
+  }
   async function loadCallbacks() {
     if (!context?.tenantId) return;
     try {
@@ -424,9 +541,11 @@
       context = await getContext();
       if (active !== requestSequence) return;
       fillUsageTenants();
+      fillAnalyticsTenants();
       await Promise.allSettled([
         loadReadiness(active),
         loadUsage(),
+        loadAnalytics(),
         loadCallbacks(),
         loadRetention(),
         loadLive(),
@@ -434,6 +553,7 @@
     } catch (error) {
       status("#readiness-checks", error.message);
       status("#usage-status", error.message);
+      status("#analytics-status", error.message);
     }
   }
 
@@ -453,6 +573,38 @@
   $("#callbacks-refresh")?.addEventListener("click", loadCallbacks);
   $("#usage-refresh")?.addEventListener("click", loadUsage);
   $("#usage-tenant")?.addEventListener("change", loadUsage);
+  $("#analytics-refresh")?.addEventListener("click", loadAnalytics);
+  $("#analytics-tenant")?.addEventListener("change", loadAnalytics);
+  $("#analytics-export")?.addEventListener("click", () => {
+    if (!latestAnalytics) return;
+    const k = latestAnalytics.kpis || {};
+    const s = latestAnalytics.by_status || {};
+    const c = latestAnalytics.conversion || {};
+    const rows = [
+      [t("METRİK"), t("DEĞER")],
+      [t("Toplam çağrı"), k.total_calls ?? 0],
+      [t("Tamamlanan çağrı"), k.completed_calls ?? 0],
+      [t("Başarısız çağrı"), k.failed_calls ?? 0],
+      [t("Başarı oranı (%)"), k.success_rate_percent ?? 100],
+      [t("Ortalama süre (sn)"), k.average_duration_seconds ?? 0],
+      [t("Toplam süre (sn)"), k.total_duration_seconds ?? 0],
+      [t("Faturalandırılan kredi"), k.billed_credits ?? 0],
+      [t("Tahmini OpenAI maliyeti (USD)"), k.estimated_openai_usd ?? 0],
+      [t("Toplam token"), k.total_tokens ?? 0],
+      [t("Alınan randevular"), c.appointments_count ?? 0],
+      [t("Geri arama talepleri"), c.callbacks_count ?? 0],
+      [],
+      [t("DURUM"), t("ÇAĞRI ADEDİ")],
+      [t("Tamamlandı"), s.ended ?? 0],
+      [t("Başarısız"), s.failed ?? 0],
+      [t("Aktif"), s.active ?? 0],
+      [t("Gelen"), s.incoming ?? 0],
+      [t("Kredi yetersiz"), s.rejected_no_credit ?? 0],
+    ];
+    const from = latestAnalytics.filters?.date_from || "all";
+    const to = latestAnalytics.filters?.date_to || "current";
+    downloadCsv(rows, `analytics-${from}-${to}.csv`);
+  });
   $("#usage-export")?.addEventListener("click", () => {
     if (!latestUsage) return;
     const rows = [
@@ -499,7 +651,7 @@
   $("#dashboard-tenant")?.addEventListener("change", loadAll);
   document
     .querySelectorAll(
-      '.nav-item[data-view="live-monitoring"],.nav-item[data-view="callbacks"],.nav-item[data-view="usage-costs"],.nav-item[data-view="privacy"]',
+      '.nav-item[data-view="live-monitoring"],.nav-item[data-view="callbacks"],.nav-item[data-view="usage-costs"],.nav-item[data-view="analytics"],.nav-item[data-view="privacy"]',
     )
     .forEach((link) =>
       link.addEventListener("click", () =>
@@ -507,6 +659,7 @@
           if (link.dataset.view === "live-monitoring") loadLive();
           if (link.dataset.view === "callbacks") loadCallbacks();
           if (link.dataset.view === "usage-costs") loadUsage();
+          if (link.dataset.view === "analytics") loadAnalytics();
           if (link.dataset.view === "privacy") loadRetention();
         }, 0),
       ),

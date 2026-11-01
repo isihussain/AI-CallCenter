@@ -25,6 +25,7 @@ if (pageContent && !document.querySelector("#help-center")) {
 }
 const viewPanels = {
   calls: document.querySelector("#calls"),
+  analytics: document.querySelector("#analytics"),
   "usage-costs": document.querySelector("#usage-costs"),
   "live-monitoring": document.querySelector("#live-monitoring"),
   callbacks: document.querySelector("#callbacks"),
@@ -211,6 +212,7 @@ function setView(view = "dashboard") {
     "system-flow": "Sistem akışı",
     integrations: "API bağlantıları",
     calls: "Çağrılar",
+    analytics: "Analitik & KPI",
     "usage-costs": "Kullanım raporu",
     "live-monitoring": "Canlı izleme",
     callbacks: "Geri aramalar",

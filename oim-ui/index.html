@@ -137,6 +137,11 @@
                 ><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span
               >Kullanım raporu</a
             >
+            <a class="nav-item" href="#analytics" data-view="analytics"
+              ><span class="nav-icon"
+                ><i class="fa-solid fa-chart-column" aria-hidden="true"></i></span
+              >Analitik &amp; KPI</a
+            >
             <a class="nav-item" href="#appointments" data-view="appointments"
               ><span class="nav-icon"
                 ><i class="fa-solid fa-calendar-check" aria-hidden="true"></i
@@ -306,6 +311,7 @@
               <option value="live-monitoring">Canlı izleme</option>
               <option value="callbacks">Geri aramalar</option>
               <option value="usage-costs">Kullanım raporu</option>
+              <option value="analytics">Analitik &amp; KPI</option>
               <option value="privacy">Veri saklama</option>
               <option value="appointments">Randevular</option>
               <option value="agents">AI Ajanları</option>
@@ -957,6 +963,144 @@ Merhaba, size nasıl yardımcı olabilirim?</textarea
                 </thead>
                 <tbody id="usage-tenant-body"></tbody>
               </table>
+            </div>
+          </section>
+          <section
+            class="panel table-panel"
+            id="analytics"
+            data-view-panel="analytics"
+          >
+            <div class="panel-heading">
+              <div>
+                <h2>Çağrı analitiği ve performans</h2>
+                <p>
+                  Çağrı başarı oranları, süreler, dönüşüm ve model maliyet özetleri.
+                </p>
+              </div>
+              <span class="pill success">Analitik</span>
+            </div>
+            <div class="report-toolbar">
+              <label
+                >Müşteri<select id="analytics-tenant" data-admin-only="">
+                  <option value="">Tüm müşteriler</option>
+                </select></label
+              >
+              <label
+                >Başlangıç (UTC)<input id="analytics-date-from" type="date"
+              /></label>
+              <label>Bitiş (UTC)<input id="analytics-date-to" type="date" /></label>
+              <button class="button primary" id="analytics-refresh" type="button">
+                Analitiği getir
+              </button>
+              <button class="button secondary" id="analytics-export" type="button">
+                CSV indir
+              </button>
+            </div>
+            <p
+              id="analytics-status"
+              class="form-note"
+              role="status"
+              aria-live="polite"
+            >
+              Özet yükleniyor…
+            </p>
+            <div class="metric-grid compact">
+              <article class="metric-card">
+                <div class="metric-top">
+                  <span class="metric-label">TOPLAM ÇAĞRI</span
+                  ><span class="metric-icon blue">◔</span>
+                </div>
+                <div class="metric-value" id="analytics-total-calls">—</div>
+                <div class="metric-foot positive"><span>seçili dönem</span></div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-top">
+                  <span class="metric-label">BAŞARI ORANI</span
+                  ><span class="metric-icon violet">✦</span>
+                </div>
+                <div class="metric-value" id="analytics-success-rate">—</div>
+                <div class="metric-foot positive">
+                  <span>tamamlanan / sonlanan</span>
+                </div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-top">
+                  <span class="metric-label">ORT. SÜRE</span
+                  ><span class="metric-icon orange">◷</span>
+                </div>
+                <div class="metric-value" id="analytics-avg-duration">—</div>
+                <div class="metric-foot neutral"><span>saniye</span></div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-top">
+                  <span class="metric-label">DÖNÜŞÜMLER</span
+                  ><span class="metric-icon green">♙</span>
+                </div>
+                <div class="metric-value" id="analytics-conversions">—</div>
+                <div class="metric-foot positive">
+                  <span>randevu + geri arama</span>
+                </div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-top">
+                  <span class="metric-label">TOPLAM TOKEN</span
+                  ><span class="metric-icon green">#</span>
+                </div>
+                <div class="metric-value" id="analytics-total-tokens">—</div>
+                <div class="metric-foot neutral">
+                  <span>input + output</span>
+                </div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-top">
+                  <span class="metric-label">TAHMİNİ USD</span
+                  ><span class="metric-icon coral">$</span>
+                </div>
+                <div class="metric-value" id="analytics-openai-usd">—</div>
+                <div class="metric-foot positive">
+                  <span>OpenAI maliyeti</span>
+                </div>
+              </article>
+            </div>
+            <div class="content-grid" style="margin-top: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+              <article class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <h3>Çağrı durum dağılımı</h3>
+                    <p>Seçili dönemdeki çağrıların sonuç durumları</p>
+                  </div>
+                </div>
+                <table class="data-table" id="analytics-status-table">
+                  <thead>
+                    <tr>
+                      <th>DURUM</th>
+                      <th>ÇAĞRI ADEDİ</th>
+                    </tr>
+                  </thead>
+                  <tbody id="analytics-status-body">
+                    <tr><td colspan="2">Veri bekleniyor…</td></tr>
+                  </tbody>
+                </table>
+              </article>
+              <article class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <h3>Değerlendirme sonuçları</h3>
+                    <p>AI ve operatör inceleme etiketleri</p>
+                  </div>
+                </div>
+                <table class="data-table" id="analytics-outcome-table">
+                  <thead>
+                    <tr>
+                      <th>SONUÇ</th>
+                      <th>ADET</th>
+                    </tr>
+                  </thead>
+                  <tbody id="analytics-outcome-body">
+                    <tr><td colspan="2">Veri bekleniyor…</td></tr>
+                  </tbody>
+                </table>
+              </article>
             </div>
           </section>
           <section
