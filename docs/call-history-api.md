@@ -48,7 +48,7 @@ Invalid dates, reversed ranges, duplicate supported parameters, unknown statuses
 
 This abbreviated example omits item objects. Counts and costs are synthetic.
 
-Each call item also includes `failure_code` and a fixed, safe `failure_message`, review fields (`review_outcome`, `review_summary`, `review_notes`), and a deterministic quality rubric (`quality_score`, `quality_coverage`, `quality_signals`). See [operations and retention](operations.md) for review permissions, signal definitions, callback workflow, and usage reports.
+Each call item also includes `failure_code` and a fixed, safe `failure_message`, review fields (`review_outcome`, `review_summary`, `review_notes`), and a deterministic quality rubric (`quality_score`, `quality_coverage`, `quality_signals`). See [operations and retention](operations.md) for review permissions, signal definitions, callback workflow, and usage reports. For high-level aggregations and conversion rates, see [call analytics and KPI summary](analytics-api.md).
 
 Items use `started_at DESC, id DESC` with a tie-breaker for equal timestamps. Reuse `snapshot_id` on later pages so new calls do not move existing rows between pages. Refreshing or changing filters starts a new snapshot. This fixes the insertion boundary; it does not freeze later edits or deletions.
 
