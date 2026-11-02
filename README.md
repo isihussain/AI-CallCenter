@@ -8,21 +8,25 @@ The project is a self-hosted application codebase, not a hosted service. You ope
 
 ## Screenshots
 
-These screenshots use synthetic accounts and calls in a local demo. The dashboard supports Turkish, English, and Russian; the selected language changes interface text without rewriting a customer's greeting or knowledge.
+These screenshots use synthetic accounts and calls from a local demo. They contain no customer records, live call traffic, or provider credentials.
 
-![Administrator system flow with separate phone and AI voice-preview routes](docs/images/admin-system-flow.jpg)
+### Admin console
 
-![Independent Realtime, OpenAI AI, and ElevenLabs connection cards](docs/images/admin-providers.jpg)
+![English admin dashboard with the operations overview](docs/images/dashboard-en.png)
 
-<img src="docs/images/admin-flow-mobile.jpg" alt="Mobile system flow with an accessible node list" width="375">
+![Complete system flow with separate phone and voice-preview routes](docs/images/admin-system-flow.png)
 
-![English administrator dashboard with the system-flow overview](docs/images/dashboard-en.jpg)
+![OpenAI Realtime, OpenAI AI, and ElevenLabs connection settings](docs/images/admin-providers.png)
 
-![English call history with server-side filters and pagination](docs/images/call-history-en.jpg)
+![English call history with filters and review outcomes](docs/images/call-history-en.png)
+
+### Customer and mobile views
 
 ![Russian customer greeting editor](docs/images/opening-message-ru.jpg)
 
 <img src="docs/images/mobile-ru.jpg" alt="Russian customer panel on a narrow mobile screen" width="375">
+
+<img src="docs/images/admin-flow-mobile.jpg" alt="Mobile system flow with an accessible node list" width="375">
 
 ## What it includes
 
