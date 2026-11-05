@@ -37,6 +37,8 @@ const viewPanels = {
   telegram: document.querySelector("#telegram"),
   settings: document.querySelector("#settings"),
   sip: document.querySelector("#settings"),
+  "contact-admin": document.querySelector("#contact-admin"),
+  "admin-contact-requests": document.querySelector("#admin-contact-requests"),
 };
 const appointmentsPanel = document.querySelector("#appointments");
 let calendarCursor = new Date();
@@ -221,6 +223,8 @@ function setView(view = "dashboard") {
     agents: "AI Ajanları",
     "opening-message": "Açılış mesajı",
     customers: "Müşteriler",
+    "contact-admin": "Yöneticiyle görüş",
+    "admin-contact-requests": "Yönetici talepleri",
     sip: "SIP Bağlantıları",
     knowledge: "Bilgi Bankası",
     telegram: "Telegram",
@@ -304,7 +308,8 @@ function applyUser(user) {
     if (tenantMeta) tenantMeta.textContent = "Yönetici paneli";
     if (tenantAvatar) tenantAvatar.textContent = "OI";
     if (greeting) greeting.textContent = "Günaydın, AI Call Center";
-    if (location.hash === "#knowledge") setView("dashboard");
+    if (["#knowledge", "#contact-admin"].includes(location.hash))
+      setView("dashboard");
   } else if (user) {
     const displayName = user.name || "Müşteri";
     if (tenantName) tenantName.textContent = displayName;
@@ -320,11 +325,23 @@ function applyUser(user) {
     if (setupName) setupName.textContent = `${displayName} sesli ajanı`;
     if (agentName) agentName.textContent = displayName;
     if (
-      ["#sip", "#settings", "#integrations", "#system-flow"].includes(
-        location.hash,
-      )
+      [
+        "#sip",
+        "#settings",
+        "#integrations",
+        "#system-flow",
+        "#admin-contact-requests",
+      ].includes(location.hash)
     )
       setView("dashboard");
+    const contactIdentity = document.querySelector("#contact-request-identity");
+    if (contactIdentity)
+      contactIdentity.textContent = OIMI18n.t(
+        "Talep şu hesap adına gönderilir: {0}",
+        {
+          0: user.name || "Müşteri",
+        },
+      );
   }
   if (changed)
     window.dispatchEvent(
@@ -433,6 +450,8 @@ async function loadOperationalData() {
   loadTelegram();
   loadCustomerTelegram();
   loadContacts();
+  if (me.user.role === "customer") loadContactRequests();
+  if (me.user.role === "admin") loadAdminContactRequests();
   loadGoogleCalendar();
   loadKnowledge();
 }
@@ -750,6 +769,157 @@ async function loadContacts() {
     renderContacts();
   } catch (_) {}
 }
+
+let contactRequestItems = [];
+let adminContactRequests = [];
+function contactRequestStatusLabel(status) {
+  const labels = {
+    new: "Yeni",
+    in_progress: "İşlemde",
+    resolved: "Tamamlandı",
+  };
+  return OIMI18n.t(labels[status] || "Yeni");
+}
+function renderContactRequestHistory(items = contactRequestItems) {
+  const list = document.querySelector("#contact-request-history-list");
+  if (!list) return;
+  contactRequestItems = items;
+  list.innerHTML = items.length
+    ? items
+        .map(
+          (item) =>
+            `<article class="contact-request-history-card"><div class="contact-request-history-meta"><span class="pill ${item.status === "resolved" ? "success" : ""}">${escapeHtml(contactRequestStatusLabel(item.status))}</span><time>${escapeHtml(formatMoment(item.created_at))}</time></div><p>${escapeHtml(item.message)}</p>${item.contact_phone ? `<small>${escapeHtml(OIMI18n.t("Geri dönüş telefonu"))}: ${escapeHtml(item.contact_phone)}</small>` : ""}</article>`,
+        )
+        .join("")
+    : `<p class="form-note">${escapeHtml(OIMI18n.t("Henüz görüşme talebi göndermediniz."))}</p>`;
+}
+async function loadContactRequests() {
+  const list = document.querySelector("#contact-request-history-list");
+  if (!list || currentUser?.role !== "customer") return;
+  try {
+    const response = await fetch("/api/contact-requests", {
+      credentials: "same-origin",
+    });
+    const data = await response.json();
+    if (!response.ok)
+      throw Error(data.error || OIMI18n.t("Talepler yüklenemedi."));
+    renderContactRequestHistory(data.items || []);
+  } catch (error) {
+    list.textContent = error.message || OIMI18n.t("Talepler yüklenemedi.");
+  }
+}
+function renderAdminContactRequests() {
+  const body = document.querySelector("#admin-contact-requests-body");
+  if (!body) return;
+  const filter =
+    document.querySelector("#admin-contact-request-filter")?.value || "all";
+  const items = adminContactRequests.filter(
+    (item) => filter === "all" || item.status === filter,
+  );
+  const newCount = adminContactRequests.filter(
+    (item) => item.status === "new",
+  ).length;
+  const count = document.querySelector("#admin-contact-request-count");
+  if (count) count.textContent = OIMI18n.t("{0} yeni", { 0: newCount });
+  body.innerHTML = items.length
+    ? items
+        .map(
+          (item) =>
+            `<tr><td><strong>${escapeHtml(item.name || "—")}</strong></td><td>${escapeHtml(item.email || "—")}</td><td>${escapeHtml(item.contact_phone || "—")}</td><td class="contact-request-message">${escapeHtml(item.message)}</td><td>${escapeHtml(formatMoment(item.created_at))}</td><td><select data-contact-request-status="${Number(item.id)}" aria-label="${escapeHtml(OIMI18n.t("{0} talebinin durumu", { 0: item.name || "Müşteri" }))}"><option value="new" ${item.status === "new" ? "selected" : ""}>${escapeHtml(contactRequestStatusLabel("new"))}</option><option value="in_progress" ${item.status === "in_progress" ? "selected" : ""}>${escapeHtml(contactRequestStatusLabel("in_progress"))}</option><option value="resolved" ${item.status === "resolved" ? "selected" : ""}>${escapeHtml(contactRequestStatusLabel("resolved"))}</option></select></td></tr>`,
+        )
+        .join("")
+    : `<tr><td colspan="6">${escapeHtml(OIMI18n.t(filter === "all" ? "Henüz görüşme talebi yok." : "Bu durumda talep yok."))}</td></tr>`;
+}
+async function loadAdminContactRequests() {
+  const body = document.querySelector("#admin-contact-requests-body");
+  if (!body || currentUser?.role !== "admin") return;
+  const status = document.querySelector("#admin-contact-request-status");
+  try {
+    const response = await fetch("/api/admin/contact-requests", {
+      credentials: "same-origin",
+    });
+    const data = await response.json();
+    if (!response.ok)
+      throw Error(data.error || OIMI18n.t("Talepler yüklenemedi."));
+    adminContactRequests = data.items || [];
+    renderAdminContactRequests();
+    if (status) status.textContent = "";
+  } catch (error) {
+    if (status)
+      status.textContent = error.message || OIMI18n.t("Talepler yüklenemedi.");
+  }
+}
+document
+  .querySelector("#contact-request-form")
+  ?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const status = document.querySelector("#contact-request-status");
+    const submit = form.querySelector('button[type="submit"]');
+    const payload = {
+      contact_phone: document.querySelector("#contact-request-phone").value,
+      message: document.querySelector("#contact-request-message").value,
+    };
+    submit.disabled = true;
+    status.textContent = OIMI18n.t("Gönderiliyor…");
+    try {
+      const response = await fetch("/api/contact-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok)
+        throw Error(data.error || OIMI18n.t("Talep gönderilemedi."));
+      form.reset();
+      status.textContent = OIMI18n.t("Talebiniz yöneticiye iletildi.");
+      await loadContactRequests();
+    } catch (error) {
+      status.textContent = error.message || OIMI18n.t("Talep gönderilemedi.");
+    } finally {
+      submit.disabled = false;
+    }
+  });
+document
+  .querySelector("#admin-contact-request-filter")
+  ?.addEventListener("change", renderAdminContactRequests);
+document
+  .querySelector("#admin-contact-request-refresh")
+  ?.addEventListener("click", loadAdminContactRequests);
+document
+  .querySelector("#admin-contact-requests-body")
+  ?.addEventListener("change", async (event) => {
+    const select = event.target.closest("[data-contact-request-status]");
+    if (!select) return;
+    const feedback = document.querySelector("#admin-contact-request-status");
+    select.disabled = true;
+    if (feedback) feedback.textContent = OIMI18n.t("Kaydediliyor…");
+    try {
+      const response = await fetch(
+        `/api/admin/contact-requests/${Number(select.dataset.contactRequestStatus)}/status`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ status: select.value }),
+        },
+      );
+      const data = await response.json();
+      if (!response.ok)
+        throw Error(data.error || OIMI18n.t("Durum güncellenemedi."));
+      if (feedback)
+        feedback.textContent = OIMI18n.t("Talep durumu güncellendi.");
+      await loadAdminContactRequests();
+    } catch (error) {
+      if (feedback)
+        feedback.textContent =
+          error.message || OIMI18n.t("Durum güncellenemedi.");
+      await loadAdminContactRequests();
+    } finally {
+      select.disabled = false;
+    }
+  });
 document
   .querySelector("#crm-filter")
   ?.addEventListener("input", renderContacts);
@@ -1642,6 +1812,13 @@ document
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 document
+  .querySelector("[data-profile-contact]")
+  ?.addEventListener("click", () => {
+    document.querySelector(".profile-menu").hidden = true;
+    setView("contact-admin");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+document
   .querySelector("[data-profile-logout]")
   ?.addEventListener("click", async () => {
     await fetch("/api/logout", { method: "POST", credentials: "same-origin" });
@@ -1655,6 +1832,8 @@ window.addEventListener("oim:localechange", () => {
   if (currentUser) applyUser(currentUser);
   renderCalendar(calendarItems);
   renderContacts();
+  renderContactRequestHistory();
+  renderAdminContactRequests();
   if (todayLabel)
     todayLabel.textContent = OIMI18n.date(new Date(), {
       weekday: "long",
