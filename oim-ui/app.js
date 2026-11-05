@@ -234,6 +234,10 @@ function setView(view = "dashboard") {
   const crumb = document.querySelector(".breadcrumb strong");
   if (crumb) crumb.textContent = labels[view] || "Genel Bakış";
   if (location.hash !== `#${view}`) history.replaceState(null, "", `#${view}`);
+  if (view === "contact-admin" && currentUser?.role === "customer")
+    loadContactRequests();
+  if (view === "admin-contact-requests" && currentUser?.role === "admin")
+    loadAdminContactRequests();
 }
 window.OIMSetView = setView;
 setView(location.hash.slice(1) || "dashboard");
@@ -450,8 +454,8 @@ async function loadOperationalData() {
   loadTelegram();
   loadCustomerTelegram();
   loadContacts();
-  if (me.user.role === "customer") loadContactRequests();
-  if (me.user.role === "admin") loadAdminContactRequests();
+  if (currentUser?.role === "customer") loadContactRequests();
+  if (currentUser?.role === "admin") loadAdminContactRequests();
   loadGoogleCalendar();
   loadKnowledge();
 }
