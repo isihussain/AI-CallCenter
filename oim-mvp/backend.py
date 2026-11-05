@@ -131,6 +131,8 @@ def db():
     if 'agreement_accepted_at' not in tenant_columns: conn.execute("ALTER TABLE tenants ADD COLUMN agreement_accepted_at INTEGER")
     if 'agreement_version' not in tenant_columns: conn.execute("ALTER TABLE tenants ADD COLUMN agreement_version TEXT NOT NULL DEFAULT ''")
     conn.execute('''CREATE TABLE IF NOT EXISTS crm_contacts(id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL, phone TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id))''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS admin_contact_requests(id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, contact_phone TEXT NOT NULL DEFAULT '', message TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'new', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id))''')
+    conn.execute('CREATE INDEX IF NOT EXISTS admin_contact_requests_status_created ON admin_contact_requests(status,created_at DESC)')
     conn.execute('INSERT OR IGNORE INTO billing_settings(id,credits_per_minute,ai_multiplier,server_hourly_rate,minimum_credit,updated_at) VALUES(1,?,?,?,?,?)',(float(os.environ.get('OIM_CREDITS_PER_MINUTE','0.1')),1,0,10,now()))
     conn.commit()
     return conn
@@ -862,6 +864,16 @@ class Handler(BaseHTTPRequestHandler):
         if not s: return
         conn=self.open_db(); row=conn.execute('SELECT * FROM tenants WHERE id=?',(s['tenant_id'],)).fetchone()
         if path == '/api/me': return self.send_json({'user':public_tenant(row)})
+        if path == '/api/contact-requests':
+            if s['role']!='customer': return self.send_json({'error':'Yetki yok'},403)
+            rows=conn.execute('SELECT id,contact_phone,message,status,created_at,updated_at FROM admin_contact_requests WHERE tenant_id=? ORDER BY created_at DESC,id DESC LIMIT 50',(s['tenant_id'],)).fetchall()
+            return self.send_json({'items':[dict(x) for x in rows]})
+        if path == '/api/admin/contact-requests':
+            if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
+            rows=conn.execute('''SELECT r.id,r.tenant_id,t.name,t.email,r.contact_phone,r.message,r.status,r.created_at,r.updated_at
+                FROM admin_contact_requests r JOIN tenants t ON t.id=r.tenant_id
+                ORDER BY CASE r.status WHEN 'new' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,r.created_at DESC,r.id DESC LIMIT 200''').fetchall()
+            return self.send_json({'items':[dict(x) for x in rows]})
         if path == '/api/google/status':
             token_row=conn.execute('SELECT calendar_id,expires_at FROM google_tokens WHERE tenant_id=?',(s['tenant_id'],)).fetchone()
             client_id,client_secret=google_credentials()
@@ -1058,6 +1070,24 @@ Appointment policy:
         s=self.require()
         if not s: return
         conn=self.open_db(); data=self.body()
+        if path == '/api/contact-requests':
+            if s['role']!='customer': return self.send_json({'error':'Yetki yok'},403)
+            message=data.get('message',''); phone=data.get('contact_phone','')
+            if not isinstance(message,str) or not isinstance(phone,str): return self.send_json({'error':'Mesaj veya telefon biçimi geçersiz'},400)
+            message=message.strip(); phone=phone.strip()
+            if not message or len(message)>2000: return self.send_json({'error':'Mesaj zorunlu ve en fazla 2000 karakter olmalı'},400)
+            if len(phone)>40 or (phone and not re.fullmatch(r'[0-9+().\-\s]{3,40}',phone)): return self.send_json({'error':'Telefon numarası geçersiz'},400)
+            timestamp=now(); cur=conn.execute('INSERT INTO admin_contact_requests(tenant_id,contact_phone,message,created_at,updated_at) VALUES(?,?,?,?,?)',(s['tenant_id'],phone,message,timestamp,timestamp)); conn.commit()
+            return self.send_json({'ok':True,'id':cur.lastrowid,'status':'new','created_at':timestamp},201)
+        if path.startswith('/api/admin/contact-requests/') and path.endswith('/status'):
+            if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
+            try: request_id=int(path.strip('/').split('/')[3])
+            except (TypeError,ValueError,IndexError): return self.send_json({'error':'Geçersiz talep'},400)
+            status=data.get('status','')
+            if not isinstance(status,str) or status not in {'new','in_progress','resolved'}: return self.send_json({'error':'Geçersiz talep durumu'},400)
+            cur=conn.execute('UPDATE admin_contact_requests SET status=?,updated_at=? WHERE id=?',(status,now(),request_id)); conn.commit()
+            if not cur.rowcount: return self.send_json({'error':'Talep bulunamadı'},404)
+            return self.send_json({'ok':True,'id':request_id,'status':status})
         if path.startswith('/api/contacts/') and (path.endswith('/update') or path.endswith('/delete')):
             parts=path.strip('/').split('/')
             try:

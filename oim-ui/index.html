@@ -139,7 +139,10 @@
             >
             <a class="nav-item" href="#analytics" data-view="analytics"
               ><span class="nav-icon"
-                ><i class="fa-solid fa-chart-column" aria-hidden="true"></i></span
+                ><i
+                  class="fa-solid fa-chart-column"
+                  aria-hidden="true"
+                ></i></span
               >Analitik &amp; KPI</a
             >
             <a class="nav-item" href="#appointments" data-view="appointments"
@@ -180,6 +183,15 @@
           </div>
           <div class="nav-group">
             <span class="nav-heading">YÖNETİM</span>
+            <a
+              class="nav-item"
+              href="#admin-contact-requests"
+              data-view="admin-contact-requests"
+              data-admin-only=""
+              ><span class="nav-icon"
+                ><i class="fa-solid fa-inbox" aria-hidden="true"></i></span
+              >Yönetici talepleri</a
+            >
             <a
               class="nav-item"
               href="#system-flow"
@@ -296,6 +308,10 @@
               ><span class="chevron">⌄</span>
             </button>
             <div class="profile-menu" hidden>
+              <button type="button" data-profile-contact data-customer-only="">
+                <i class="fa-solid fa-headset" aria-hidden="true"></i>
+                Yöneticiyle görüş
+              </button>
               <button type="button" data-profile-settings="">
                 <i class="fa-solid fa-gear"></i> Ayarlar</button
               ><button type="button" data-profile-logout="">
@@ -319,6 +335,9 @@
                 Açılış mesajı
               </option>
               <option value="crm" data-customer-only="">Müşteri CRM’i</option>
+              <option value="contact-admin" data-customer-only="">
+                Yöneticiyle görüş
+              </option>
               <option value="knowledge" data-customer-only="">
                 Bilgi Bankası
               </option>
@@ -327,6 +346,9 @@
                 Google Calendar
               </option>
               <option value="customers" data-admin-only="">Müşteriler</option>
+              <option value="admin-contact-requests" data-admin-only="">
+                Yönetici talepleri
+              </option>
               <option value="sip" data-admin-only="">SIP Bağlantıları</option>
               <option value="system-flow" data-admin-only="">
                 Sistem akışı
@@ -974,7 +996,8 @@ Merhaba, size nasıl yardımcı olabilirim?</textarea
               <div>
                 <h2>Çağrı analitiği ve performans</h2>
                 <p>
-                  Çağrı başarı oranları, süreler, dönüşüm ve model maliyet özetleri.
+                  Çağrı başarı oranları, süreler, dönüşüm ve model maliyet
+                  özetleri.
                 </p>
               </div>
               <span class="pill success">Analitik</span>
@@ -988,11 +1011,21 @@ Merhaba, size nasıl yardımcı olabilirim?</textarea
               <label
                 >Başlangıç (UTC)<input id="analytics-date-from" type="date"
               /></label>
-              <label>Bitiş (UTC)<input id="analytics-date-to" type="date" /></label>
-              <button class="button primary" id="analytics-refresh" type="button">
+              <label
+                >Bitiş (UTC)<input id="analytics-date-to" type="date"
+              /></label>
+              <button
+                class="button primary"
+                id="analytics-refresh"
+                type="button"
+              >
                 Analitiği getir
               </button>
-              <button class="button secondary" id="analytics-export" type="button">
+              <button
+                class="button secondary"
+                id="analytics-export"
+                type="button"
+              >
                 CSV indir
               </button>
             </div>
@@ -1011,7 +1044,9 @@ Merhaba, size nasıl yardımcı olabilirim?</textarea
                   ><span class="metric-icon blue">◔</span>
                 </div>
                 <div class="metric-value" id="analytics-total-calls">—</div>
-                <div class="metric-foot positive"><span>seçili dönem</span></div>
+                <div class="metric-foot positive">
+                  <span>seçili dönem</span>
+                </div>
               </article>
               <article class="metric-card">
                 <div class="metric-top">
@@ -1062,7 +1097,14 @@ Merhaba, size nasıl yardımcı olabilirim?</textarea
                 </div>
               </article>
             </div>
-            <div class="content-grid" style="margin-top: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+            <div
+              class="content-grid"
+              style="
+                margin-top: 1.5rem;
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                gap: 1rem;
+              "
+            >
               <article class="panel">
                 <div class="panel-heading">
                   <div>
@@ -1078,7 +1120,9 @@ Merhaba, size nasıl yardımcı olabilirim?</textarea
                     </tr>
                   </thead>
                   <tbody id="analytics-status-body">
-                    <tr><td colspan="2">Veri bekleniyor…</td></tr>
+                    <tr>
+                      <td colspan="2">Veri bekleniyor…</td>
+                    </tr>
                   </tbody>
                 </table>
               </article>
@@ -1097,7 +1141,9 @@ Merhaba, size nasıl yardımcı olabilirim?</textarea
                     </tr>
                   </thead>
                   <tbody id="analytics-outcome-body">
-                    <tr><td colspan="2">Veri bekleniyor…</td></tr>
+                    <tr>
+                      <td colspan="2">Veri bekleniyor…</td>
+                    </tr>
                   </tbody>
                 </table>
               </article>
@@ -1301,6 +1347,142 @@ Merhaba, size nasıl yardımcı olabilirim?</textarea
                 <tbody id="contacts-body">
                   <tr>
                     <td colspan="4">CRM kayıtları yükleniyor…</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section
+            class="panel settings-panel contact-request-panel"
+            id="contact-admin"
+            data-customer-only=""
+            data-view-panel="contact-admin"
+          >
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">DESTEK</p>
+                <h2>Yöneticiyle görüşme isteği</h2>
+                <p>Mesajınızı gönderin; ekibimiz sizinle iletişime geçsin.</p>
+              </div>
+              <span class="pill success">Güvenli hesap talebi</span>
+            </div>
+            <p
+              class="contact-request-identity"
+              id="contact-request-identity"
+            ></p>
+            <form
+              id="contact-request-form"
+              class="provider-form contact-request-form"
+            >
+              <label
+                >Geri dönüş telefonu (isteğe bağlı)<input
+                  id="contact-request-phone"
+                  name="contact_phone"
+                  type="tel"
+                  autocomplete="tel"
+                  maxlength="40"
+                  placeholder="+90 5xx xxx xx xx"
+              /></label>
+              <label
+                >Mesajınız<textarea
+                  id="contact-request-message"
+                  name="message"
+                  required
+                  maxlength="2000"
+                  rows="5"
+                  aria-describedby="contact-request-hint"
+                  placeholder="Yöneticiyle hangi konuda görüşmek istediğinizi yazın."
+                ></textarea>
+              </label>
+              <p
+                class="form-note contact-request-hint"
+                id="contact-request-hint"
+              >
+                Adınız ve e-posta adresiniz hesabınızdan alınır. Telefon
+                numarası isteğe bağlıdır.
+              </p>
+              <button class="button primary" type="submit">
+                Görüşme isteği gönder
+              </button>
+              <span
+                id="contact-request-status"
+                class="form-note"
+                role="status"
+                aria-live="polite"
+              ></span>
+            </form>
+            <div class="contact-request-history">
+              <div class="panel-heading">
+                <div>
+                  <h3>Gönderdiğim talepler</h3>
+                  <p>Talebinizin durumunu buradan takip edebilirsiniz.</p>
+                </div>
+              </div>
+              <div
+                id="contact-request-history-list"
+                class="contact-request-history-list"
+              >
+                <p class="form-note">Talepler yükleniyor…</p>
+              </div>
+            </div>
+          </section>
+          <section
+            class="panel table-panel admin-contact-requests-panel"
+            id="admin-contact-requests"
+            data-admin-only=""
+            data-view-panel="admin-contact-requests"
+          >
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">CRM</p>
+                <h2>Yöneticiyle görüşme talepleri</h2>
+                <p>
+                  Müşteri hesaplarından gelen talepleri inceleyin ve durumunu
+                  güncelleyin.
+                </p>
+              </div>
+              <span class="pill success" id="admin-contact-request-count"
+                >0 yeni</span
+              >
+            </div>
+            <div class="crm-toolbar contact-request-toolbar">
+              <label
+                >Durum filtresi<select id="admin-contact-request-filter">
+                  <option value="all">Tüm durumlar</option>
+                  <option value="new">Yeni</option>
+                  <option value="in_progress">İşlemde</option>
+                  <option value="resolved">Tamamlandı</option>
+                </select></label
+              >
+              <button
+                class="button outline"
+                type="button"
+                id="admin-contact-request-refresh"
+              >
+                Yenile
+              </button>
+              <span
+                class="form-note"
+                id="admin-contact-request-status"
+                role="status"
+                aria-live="polite"
+              ></span>
+            </div>
+            <div class="table-wrap">
+              <table class="admin-contact-request-table">
+                <thead>
+                  <tr>
+                    <th>MÜŞTERİ</th>
+                    <th>E-POSTA</th>
+                    <th>GERİ DÖNÜŞ TELEFONU</th>
+                    <th>MESAJ</th>
+                    <th>TARİH</th>
+                    <th>DURUM</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-contact-requests-body">
+                  <tr>
+                    <td colspan="6">Talepler yükleniyor…</td>
                   </tr>
                 </tbody>
               </table>

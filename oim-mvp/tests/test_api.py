@@ -38,10 +38,11 @@ class ApiTestCase(unittest.TestCase):
         self.external_calls.start()
         self.addCleanup(self.external_calls.stop)
         with closing(backend.db()) as conn, conn:
-            for tid, name, role in ((1, "Demo Administrator", "admin"), (2, "Demo Studio", "customer"), (3, "Example Workshop", "customer")):
+            for tid, name, role in ((1, "Demo Administrator", "admin"), (2, "Natalya Kangotan (Demo)", "customer"), (3, "Example Workshop", "customer")):
                 conn.execute("INSERT INTO tenants(id,name,username,password_hash,role,credits,created_at) VALUES(?,?,?,?,?,100,?)",
                              (tid, name, f"test-{tid}", self.password_hash, role, backend.now()))
                 backend.SESSIONS[f"session-{tid}"] = {"tenant_id":tid, "role":role, "expires":backend.now()+3600}
+            conn.execute("UPDATE tenants SET email='natalya.demo@example.com' WHERE id=2")
             for tid in (2, 3):
                 conn.execute("INSERT INTO calls(tenant_id,call_id,caller,status,started_at,ended_at) VALUES(?,?,?,'ended',100,220)", (tid, f"call-{tid}", f"demo-caller-{tid}"))
                 conn.execute("INSERT INTO appointments(tenant_id,customer_name,phone,service,appointment_at,created_at) VALUES(?,?,?,?,?,?)",
@@ -87,10 +88,11 @@ class ApiTestCase(unittest.TestCase):
 
 class TenantIsolationTests(ApiTestCase):
     def test_protected_endpoints_require_a_session(self):
-        for path in ("/api/me", "/api/calls", "/api/appointments", "/api/contacts", "/api/knowledge", "/api/tenant/ai-settings", "/api/readiness", "/api/live-calls", "/api/usage-report", "/api/analytics/summary", "/api/callbacks", "/api/privacy", "/api/admin/tenants"):
+        for path in ("/api/me", "/api/calls", "/api/appointments", "/api/contacts", "/api/contact-requests", "/api/admin/contact-requests", "/api/knowledge", "/api/tenant/ai-settings", "/api/readiness", "/api/live-calls", "/api/usage-report", "/api/analytics/summary", "/api/callbacks", "/api/privacy", "/api/admin/tenants"):
             with self.subTest(path=path):
                 self.assertEqual(self.request("GET", path, tenant=None)[0], 401)
         self.assertEqual(self.request("POST", "/api/tenant/ai-settings", {"greeting":"Test"}, tenant=None)[0], 401)
+        self.assertEqual(self.request("POST", "/api/contact-requests", {"message":"Demo"}, tenant=None)[0], 401)
 
     def test_customers_cannot_override_their_read_scope(self):
         for tid in (2, 3):
@@ -138,6 +140,47 @@ class TenantIsolationTests(ApiTestCase):
         self.assertEqual(self.request("POST", "/api/contacts", {"tenant_id":3,"name":"New demo contact"})[0], 200)
         self.assertEqual(len(self.get("/api/contacts")["items"]), 2)
         self.assertEqual(len(self.get("/api/contacts", 3)["items"]), 1)
+
+    def test_natalya_demo_contact_request_is_session_scoped_and_visible_in_admin_crm(self):
+        payload = {
+            "tenant_id":3,
+            "name":"Spoofed demo name",
+            "email":"spoofed@example.invalid",
+            "contact_phone":"+1 202-555-0101",
+            "message":"[DEMO] Please contact me about my account setup.",
+        }
+        status, created, _ = self.request("POST", "/api/contact-requests", payload, 2)
+        self.assertEqual(status, 201, created)
+        self.assertEqual(created["status"], "new")
+
+        natalya_history = self.get("/api/contact-requests", tenant=2)["items"]
+        self.assertEqual(len(natalya_history), 1)
+        self.assertEqual(natalya_history[0]["message"], payload["message"])
+        self.assertNotIn("name", natalya_history[0])
+        self.assertEqual(self.get("/api/contact-requests", tenant=3)["items"], [])
+        self.assertEqual(self.request("POST", "/api/contact-requests", {"message":"Admin must not file as a customer"}, tenant=1)[0], 403)
+
+        admin_items = self.get("/api/admin/contact-requests", tenant=1)["items"]
+        self.assertEqual(len(admin_items), 1)
+        self.assertEqual(admin_items[0]["tenant_id"], 2)
+        self.assertEqual(admin_items[0]["name"], "Natalya Kangotan (Demo)")
+        self.assertEqual(admin_items[0]["email"], "natalya.demo@example.com")
+        self.assertEqual(admin_items[0]["contact_phone"], payload["contact_phone"])
+        self.assertEqual(admin_items[0]["message"], payload["message"])
+        self.assertEqual(self.request("GET", "/api/admin/contact-requests", tenant=2)[0], 403)
+
+    def test_contact_request_validation_and_admin_status_updates(self):
+        self.assertEqual(self.request("POST", "/api/contact-requests", {"message":"  "}, tenant=2)[0], 400)
+        self.assertEqual(self.request("POST", "/api/contact-requests", {"message":"Need a callback", "contact_phone":"not a number"}, tenant=2)[0], 400)
+        self.assertEqual(self.request("POST", "/api/contact-requests", {"message":"x" * 2001}, tenant=2)[0], 400)
+        status, created, _ = self.request("POST", "/api/contact-requests", {"message":"[DEMO] Status flow"}, tenant=2)
+        self.assertEqual(status, 201)
+        self.assertEqual(self.request("POST", f"/api/admin/contact-requests/{created['id']}/status", {"status":"resolved"}, tenant=2)[0], 403)
+        self.assertEqual(self.request("POST", f"/api/admin/contact-requests/{created['id']}/status", {"status":"unknown"}, tenant=1)[0], 400)
+        self.assertEqual(self.request("POST", f"/api/admin/contact-requests/{created['id']}/status", {"status":[]}, tenant=1)[0], 400)
+        self.assertEqual(self.request("POST", f"/api/admin/contact-requests/{created['id']}/status", {"status":"in_progress"}, tenant=1)[0], 200)
+        self.assertEqual(self.get("/api/admin/contact-requests", tenant=1)["items"][0]["status"], "in_progress")
+        self.assertEqual(self.request("POST", "/api/admin/contact-requests/999/status", {"status":"resolved"}, tenant=1)[0], 404)
 
     def test_administrator_routes_reject_customer_sessions(self):
         for path in ("/api/admin/tenants", "/api/admin/providers", "/api/admin/billing", "/api/admin/legal-settings", "/api/admin/tenants/3/sip"):
