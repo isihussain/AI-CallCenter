@@ -63,11 +63,12 @@ class ApiTestCase(unittest.TestCase):
         self.server.server_close()
         self.thread.join(timeout=2)
 
-    def request(self, method, path, data=None, tenant=2):
+    def request(self, method, path, data=None, tenant=2, extra_headers=None):
         conn = http.client.HTTPConnection(*self.server.server_address, timeout=5)
         headers = {}
         if tenant is not None:
             headers["Cookie"] = f"oim_session=session-{tenant}"
+        headers.update(extra_headers or {})
         payload = None
         if data is not None:
             headers["Content-Type"] = "application/json"
@@ -342,6 +343,32 @@ class OperationsFeatureTests(ApiTestCase):
         self.assertEqual({row["tenant_id"] for row in admin["tenants"]},{2,3})
         self.assertEqual(self.request("GET","/api/usage-report?date_from=2026-10-01&date_to=2027-01-02",tenant=2)[0],400)
         self.assertEqual(self.request("GET","/api/usage-report?date_from=2026-11-01&date_to=2026-10-01",tenant=2)[0],400)
+
+    def test_call_tenant_resolution_requires_one_unambiguous_match(self):
+        with closing(backend.db()) as conn, conn:
+            conn.executemany("INSERT INTO tenant_sip(tenant_id,username,did,domain,password,updated_at) VALUES(?,?,?,'sip.example.test','',?)",
+                             ((2,"sip-2","+1 555 000 2000",backend.now()),(3,"sip-3","+1 555 000 3000",backend.now())))
+        self.assertEqual(backend.tenant_from_payload({"to":"+1 555 000 3000"}),3)
+        self.assertIsNone(backend.tenant_from_payload({"to":"+1 555 000 9999"}))
+        with closing(backend.db()) as conn, conn:
+            conn.execute("UPDATE tenant_sip SET did='+1 555 000 3000' WHERE tenant_id=2")
+        self.assertIsNone(backend.tenant_from_payload({"to":"+1 555 000 3000"}))
+
+    def test_unmatched_realtime_call_is_rejected_without_assigning_a_tenant(self):
+        event={"type":"realtime.call.incoming","data":{"call_id":"unrouted-call","to":"+1 555 000 9999"}}
+        raw=json.dumps(event).encode()
+        secret_key=b"synthetic-webhook-key"
+        webhook_id="synthetic-webhook-id"
+        timestamp=str(backend.now())
+        signature=backend.base64.b64encode(backend.hmac.new(secret_key,(webhook_id+'.'+timestamp+'.').encode()+raw,backend.hashlib.sha256).digest()).decode()
+        headers={"webhook-id":webhook_id,"webhook-timestamp":timestamp,"webhook-signature":"v1,"+signature}
+        secret="whsec_"+backend.base64.b64encode(secret_key).decode()
+        with patch.dict("os.environ",{"OPENAI_WEBHOOK_SECRET":secret}):
+            status,data,_=self.request("POST","/api/openai/webhook",event,tenant=None,extra_headers=headers)
+        self.assertEqual(status,200)
+        self.assertEqual(data,{"ok":True,"accepted":False,"reason":"tenant_unresolved"})
+        with closing(backend.db()) as conn:
+            self.assertIsNone(conn.execute("SELECT 1 FROM calls WHERE call_id='unrouted-call'").fetchone())
 
     def test_callback_requests_are_idempotent_and_tenant_isolated(self):
         with closing(backend.db()) as conn, conn:

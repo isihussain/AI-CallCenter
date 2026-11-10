@@ -400,11 +400,14 @@ def tenant_from_payload(payload):
     conn=db(); rows=conn.execute('SELECT tenant_id,username,did FROM tenant_sip WHERE username<>""').fetchall(); fallback=None
     active=conn.execute('SELECT id FROM tenants WHERE role="customer" AND status="active" ORDER BY id').fetchall(); conn.close()
     if len(active)==1: fallback=active[0]['id']
+    matches=set()
     for candidate in candidates:
         for row in rows:
             if candidate and candidate in {normalize_phone(row['username']),normalize_phone(row['did'])}:
-                return row['tenant_id']
-    return fallback or 2
+                matches.add(row['tenant_id'])
+    if len(matches)==1: return matches.pop()
+    if matches: return None
+    return fallback
 
 GOOGLE_SCOPE='https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.freebusy'
 GOOGLE_REDIRECT=PUBLIC_URL+'/api/google/callback'
@@ -1028,6 +1031,8 @@ class Handler(BaseHTTPRequestHandler):
             call_id=payload.get('call_id') or payload.get('session_id') or payload.get('id')
             if event_type == 'realtime.call.incoming' and call_id:
                 tenant_id=tenant_from_payload(payload)
+                if not tenant_id:
+                    return self.send_json({'ok':True,'accepted':False,'reason':'tenant_unresolved'})
                 key,model=configured_openai()
                 conn=self.open_db(); tenant=conn.execute('SELECT name,credits,status FROM tenants WHERE id=?',(tenant_id,)).fetchone(); conn.execute('INSERT OR IGNORE INTO calls(tenant_id,call_id,status,started_at) VALUES(?,?,?,?)',(tenant_id,str(call_id),'incoming',now()));
                 pricing=conn.execute('SELECT credits_per_minute,ai_multiplier,minimum_credit FROM billing_settings WHERE id=1').fetchone()
