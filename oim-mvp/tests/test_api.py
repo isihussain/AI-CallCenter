@@ -89,6 +89,31 @@ class ApiTestCase(unittest.TestCase):
 
 
 class TenantIsolationTests(ApiTestCase):
+    def test_login_throttle_separates_clients_behind_a_trusted_proxy(self):
+        with patch.object(backend, "TRUST_PROXY_HEADERS", True):
+            for _ in range(5):
+                status, _, _ = self.request(
+                    "POST", "/api/login", {"username":"test-2", "password":"wrong"}, tenant=None,
+                    extra_headers={"X-Forwarded-For":"198.51.100.10"})
+                self.assertEqual(status, 401)
+            self.assertEqual(self.request(
+                "POST", "/api/login", {"username":"test-2", "password":"wrong"}, tenant=None,
+                extra_headers={"X-Forwarded-For":"198.51.100.10"})[0], 429)
+            self.assertEqual(self.request(
+                "POST", "/api/login", {"username":"test-2", "password":"Synthetic-test-password"}, tenant=None,
+                extra_headers={"X-Forwarded-For":"198.51.100.11"})[0], 200)
+
+    def test_login_throttle_ignores_forwarded_ip_when_proxy_is_not_trusted(self):
+        with patch.object(backend, "TRUST_PROXY_HEADERS", False):
+            for attempt in range(5):
+                status, _, _ = self.request(
+                    "POST", "/api/login", {"username":"test-2", "password":"wrong"}, tenant=None,
+                    extra_headers={"X-Forwarded-For":f"198.51.100.{attempt + 10}"})
+                self.assertEqual(status, 401)
+            self.assertEqual(self.request(
+                "POST", "/api/login", {"username":"test-2", "password":"Synthetic-test-password"}, tenant=None,
+                extra_headers={"X-Forwarded-For":"203.0.113.99"})[0], 429)
+
     def test_protected_endpoints_require_a_session(self):
         for path in ("/api/me", "/api/calls", "/api/appointments", "/api/contacts", "/api/contact-requests", "/api/admin/contact-requests", "/api/knowledge", "/api/tenant/ai-settings", "/api/readiness", "/api/live-calls", "/api/usage-report", "/api/analytics/summary", "/api/callbacks", "/api/privacy", "/api/admin/tenants"):
             with self.subTest(path=path):

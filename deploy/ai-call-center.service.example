@@ -9,6 +9,7 @@ User=ai-call-center
 Group=ai-call-center
 WorkingDirectory=/opt/ai-call-center-saas
 EnvironmentFile=/etc/ai-call-center.env
+Environment=OIM_TRUST_PROXY_HEADERS=true
 ExecStart=/opt/ai-call-center-saas/.venv/bin/python /opt/ai-call-center-saas/oim-mvp/backend.py
 Restart=on-failure
 RestartSec=3
