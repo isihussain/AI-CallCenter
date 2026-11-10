@@ -6,27 +6,33 @@ An open-source starting point for a multi-tenant AI telephone assistant. It comb
 
 The project is a self-hosted application codebase, not a hosted service. You operate the server, telephone routes, provider accounts, customer data, backups, and legal notices.
 
-## Screenshots
+## Product Screenshots
 
-These screenshots use synthetic accounts and calls from a local demo. They contain no customer records, live call traffic, or provider credentials.
+All screenshots use synthetic demo accounts, calls, and settings. Names, counts, caller IDs, and model IDs are examples; the images contain no customer records, live call traffic, or provider credentials.
 
-### Admin console
+### System flow
 
-![English admin dashboard with the operations overview](docs/images/dashboard-en.png)
+This view separates voice previews from the phone-call route. Follow the phone path from the incoming call through SIP/PBX and OpenAI Realtime to the agent tools. Moving dots show the configured direction; they do not represent live network traffic.
 
-![Complete system flow with separate phone and voice-preview routes](docs/images/admin-system-flow.png)
+![English administrator system-flow dashboard showing the voice preview and phone-call routes](docs/images/system-flow-admin-en.png)
 
-![OpenAI Realtime, OpenAI AI, and ElevenLabs connection settings](docs/images/admin-providers.png)
+[View the full-size system-flow screenshot](docs/images/system-flow-admin-en.png)
 
-![English call history with filters and review outcomes](docs/images/call-history-en.png)
+### Provider connections
 
-### Customer and mobile views
+Each provider has separate model, key, and enabled settings. The example shows OpenAI Realtime for phone audio, OpenAI AI for text, and ElevenLabs for speech previews. The displayed model IDs are synthetic.
 
-![Russian customer greeting editor](docs/images/opening-message-ru.jpg)
+![English provider settings for OpenAI Realtime, OpenAI AI, and ElevenLabs](docs/images/provider-connections-en.png)
 
-<img src="docs/images/mobile-ru.jpg" alt="Russian customer panel on a narrow mobile screen" width="375">
+[View the full-size provider screenshot](docs/images/provider-connections-en.png)
 
-<img src="docs/images/admin-flow-mobile.jpg" alt="Mobile system flow with an accessible node list" width="375">
+### Mobile system flow
+
+On narrow screens, the system flow offers a readable node list and keeps the selected connection details available without requiring a wide diagram.
+
+<img src="docs/images/system-flow-mobile-en.jpg" alt="English mobile system-flow view with a node list and connection details" width="375">
+
+[View the full-size mobile screenshot](docs/images/system-flow-mobile-en.jpg)
 
 ## What it includes
 
