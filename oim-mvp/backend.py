@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import asyncio, base64, hashlib, hmac, json, math, os, re, secrets, sqlite3, subprocess, threading, time
+import asyncio, base64, hashlib, hmac, ipaddress, json, math, os, re, secrets, sqlite3, subprocess, threading, time
 import urllib.error, urllib.parse, urllib.request
 from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 DB_PATH = os.environ.get('OIM_DB', '/var/lib/oim/oim.db')
 HOST = os.environ.get('OIM_HOST', '127.0.0.1')
 PORT = int(os.environ.get('OIM_PORT', '8787'))
+TRUST_PROXY_HEADERS = os.environ.get('OIM_TRUST_PROXY_HEADERS','false').strip().lower() in {'1','true','yes'}
 SESSION_TTL = 60 * 60 * 12
 SESSIONS = {}
 LOGIN_ATTEMPTS = {}
@@ -832,6 +833,13 @@ class Handler(BaseHTTPRequestHandler):
         conn=db()
         self._database_connections.append(conn)
         return conn
+    def client_ip(self):
+        peer=self.client_address[0]
+        if not TRUST_PROXY_HEADERS: return peer
+        forwarded=self.headers.get('X-Forwarded-For','')
+        candidate=forwarded.rsplit(',',1)[-1].strip()
+        try: return str(ipaddress.ip_address(candidate))
+        except ValueError: return peer
     def log_message(self, fmt, *args): pass
     def send_json(self, data, status=200):
         body=json.dumps(data,ensure_ascii=False).encode()
@@ -1004,17 +1012,22 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path=urlparse(self.path).path
         if path == '/api/login':
-            data=self.body(); client_ip=self.client_address[0]; current=now()
+            data=self.body()
+            if not isinstance(data,dict): return self.send_json({'error':'Giriş bilgileri geçersiz'},400)
+            username_value=data.get('username',''); username=username_value.strip() if isinstance(username_value,str) else ''
+            client_ip=self.client_ip(); attempt_key=(client_ip,username.casefold()); current=now()
             with LOGIN_LOCK:
-                attempt=LOGIN_ATTEMPTS.get(client_ip,{'count':0,'first':current,'locked_until':0})
+                for key,value in list(LOGIN_ATTEMPTS.items()):
+                    if value.get('locked_until',0)<=current and current-value.get('first',current)>600: LOGIN_ATTEMPTS.pop(key,None)
+                attempt=LOGIN_ATTEMPTS.get(attempt_key,{'count':0,'first':current,'locked_until':0})
                 if attempt.get('locked_until',0)>current: return self.send_json({'error':'Çok fazla başarısız giriş. Lütfen daha sonra tekrar deneyin.'},429)
                 if current-attempt.get('first',current)>600: attempt={'count':0,'first':current,'locked_until':0}
-            conn=self.open_db(); row=conn.execute('SELECT * FROM tenants WHERE username=? AND status="active"',(data.get('username','').strip(),)).fetchone()
+            conn=self.open_db(); row=conn.execute('SELECT * FROM tenants WHERE username=? AND status="active"',(username,)).fetchone()
             if not row or not check_password(data.get('password',''),row['password_hash']):
                 with LOGIN_LOCK:
-                    attempt['count']=attempt.get('count',0)+1; attempt['first']=attempt.get('first',current); attempt['locked_until']=current+900 if attempt['count']>=5 else 0; LOGIN_ATTEMPTS[client_ip]=attempt
+                    attempt['count']=attempt.get('count',0)+1; attempt['first']=attempt.get('first',current); attempt['locked_until']=current+900 if attempt['count']>=5 else 0; LOGIN_ATTEMPTS[attempt_key]=attempt
                 return self.send_json({'error':'Kullanıcı adı veya parola hatalı'},401)
-            with LOGIN_LOCK: LOGIN_ATTEMPTS.pop(client_ip,None)
+            with LOGIN_LOCK: LOGIN_ATTEMPTS.pop(attempt_key,None)
             token=secrets.token_urlsafe(32); SESSIONS[token]={'tenant_id':row['id'],'role':row['role'],'expires':now()+SESSION_TTL}
             self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Set-Cookie',f'oim_session={token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age={SESSION_TTL}'); self.end_headers(); self.wfile.write(json.dumps({'user':public_tenant(row)},ensure_ascii=False).encode()); return
         if path == '/api/logout':
