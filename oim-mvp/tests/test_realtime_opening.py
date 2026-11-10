@@ -5,6 +5,7 @@ import sqlite3
 import sys
 import types
 import unittest
+from datetime import timedelta
 from unittest.mock import Mock, patch
 
 
@@ -44,6 +45,34 @@ class OpeningResponseTests(unittest.TestCase):
     def test_missing_tenant_uses_generic_greeting(self):
         event = self.response_for(None, None)
         self.assertTrue(event['response']['instructions'].endswith('Merhaba, size nasıl yardımcı olabilirim?'))
+
+
+class AppointmentDateTimeTests(unittest.TestCase):
+    def test_naive_datetime_is_interpreted_in_istanbul(self):
+        start = backend.parse_appointment_datetime('2026-11-15T10:30:00')
+        self.assertEqual(start.tzinfo.key, 'Europe/Istanbul')
+        self.assertEqual(start.utcoffset(), timedelta(hours=3))
+        self.assertEqual(start.isoformat(), '2026-11-15T10:30:00+03:00')
+
+    def test_aware_datetime_keeps_its_instant_and_returns_istanbul_time(self):
+        start = backend.parse_appointment_datetime('2026-11-15T07:30:00Z')
+        self.assertEqual(start.isoformat(), '2026-11-15T10:30:00+03:00')
+
+    def test_calendar_event_uses_the_requested_istanbul_wall_time(self):
+        calls = []
+
+        def fake_google_api(tenant_id, method, url, payload=None):
+            calls.append((tenant_id, method, url, payload))
+            if url.endswith('/freeBusy'):
+                return {'calendars': {'primary': {'busy': []}}}
+            return {'id': 'synthetic-event'}
+
+        with patch.object(backend, 'google_access_token', return_value='synthetic-token'), patch.object(backend, 'google_api', side_effect=fake_google_api):
+            result = backend.calendar_reserve(2, {'customer_name':'Demo Caller', 'service':'Consultation', 'appointment_at':'2026-11-15T10:30:00'})
+
+        self.assertEqual(result, {'ok':True, 'connected':True, 'event_id':'synthetic-event'})
+        event = calls[-1][3]
+        self.assertEqual(event['start'], {'dateTime':'2026-11-15T10:30:00+03:00', 'timeZone':'Europe/Istanbul'})
 
 
 class SidebandOpeningTests(unittest.IsolatedAsyncioTestCase):

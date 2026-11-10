@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 DB_PATH = os.environ.get('OIM_DB', '/var/lib/oim/oim.db')
 HOST = os.environ.get('OIM_HOST', '127.0.0.1')
@@ -411,6 +412,14 @@ def tenant_from_payload(payload):
 
 GOOGLE_SCOPE='https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.freebusy'
 GOOGLE_REDIRECT=PUBLIC_URL+'/api/google/callback'
+ISTANBUL_TIMEZONE=ZoneInfo('Europe/Istanbul')
+
+def parse_appointment_datetime(value):
+    raw=str(value).strip()
+    if raw.endswith('Z'): raw=raw[:-1]+'+00:00'
+    start=datetime.fromisoformat(raw)
+    if start.tzinfo is None: start=start.replace(tzinfo=ISTANBUL_TIMEZONE)
+    return start.astimezone(ISTANBUL_TIMEZONE)
 
 def google_credentials():
     return os.environ.get('GOOGLE_CLIENT_ID','').strip(),os.environ.get('GOOGLE_CLIENT_SECRET','').strip()
@@ -445,11 +454,9 @@ def calendar_reserve(tenant_id,args):
     token=google_access_token(tenant_id)
     if not token: return {'ok':True,'connected':False}
     from datetime import datetime,timedelta
-    raw=str(args['appointment_at']).strip()
     try:
-        start=datetime.fromisoformat(raw.replace('Z','+00:00'))
-        if start.tzinfo is None: start=start.replace().astimezone()
-    except Exception: return {'ok':False,'message':'Rezervasyon tarihi anlaşılmadı'}
+        start=parse_appointment_datetime(args['appointment_at'])
+    except (KeyError,TypeError,ValueError): return {'ok':False,'message':'Rezervasyon tarihi anlaşılmadı'}
     end=start+timedelta(minutes=60)
     start_iso=start.isoformat(); end_iso=end.isoformat()
     busy=google_api(tenant_id,'POST','https://www.googleapis.com/calendar/v3/freeBusy',{'timeMin':start_iso,'timeMax':end_iso,'items':[{'id':'primary'}]})
