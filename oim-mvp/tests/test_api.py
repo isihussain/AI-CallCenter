@@ -311,6 +311,38 @@ class CallHistoryTests(ApiTestCase):
 
 
 class OperationsFeatureTests(ApiTestCase):
+    def test_non_finite_credit_and_billing_values_are_rejected(self):
+        invalid=float('inf')
+        payload={"name":"Invalid Credit Demo","username":"invalid-credit-demo","password":"Synthetic-unique-password","agreement_accepted":True,"credits":invalid}
+        self.assertEqual(self.request("POST","/api/admin/tenants",payload,tenant=1)[0],400)
+        self.assertEqual(self.request("POST","/api/admin/tenants/2/credits",{"amount":invalid},tenant=1)[0],400)
+        self.assertEqual(self.request("POST","/api/usage",{"tenant_id":2,"amount":invalid},tenant=1)[0],400)
+        self.assertEqual(self.request("POST","/api/admin/billing",{"credits_per_minute":invalid},tenant=1)[0],400)
+        with closing(backend.db()) as conn:
+            self.assertEqual(conn.execute("SELECT credits FROM tenants WHERE id=2").fetchone()[0],100)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM tenants WHERE username='invalid-credit-demo'").fetchone()[0],0)
+            self.assertEqual(conn.execute("SELECT credits_per_minute FROM billing_settings WHERE id=1").fetchone()[0],0.1)
+
+    def test_concurrent_usage_debits_cannot_overdraw_a_customer(self):
+        with closing(backend.db()) as conn, conn:
+            conn.execute("UPDATE tenants SET credits=100 WHERE id=2")
+        barrier=threading.Barrier(3)
+        statuses=[]
+
+        def debit():
+            barrier.wait()
+            statuses.append(self.request("POST","/api/usage",{"tenant_id":2,"amount":60},tenant=1)[0])
+
+        workers=[threading.Thread(target=debit) for _ in range(2)]
+        for worker in workers: worker.start()
+        barrier.wait()
+        for worker in workers: worker.join(timeout=6)
+        self.assertTrue(all(not worker.is_alive() for worker in workers))
+        self.assertCountEqual(statuses,[200,400])
+        with closing(backend.db()) as conn:
+            self.assertEqual(conn.execute("SELECT credits FROM tenants WHERE id=2").fetchone()[0],40)
+            self.assertEqual(conn.execute("SELECT SUM(amount) FROM ledger WHERE tenant_id=2").fetchone()[0],-60)
+
     def test_readiness_is_tenant_scoped_and_never_returns_credentials(self):
         with closing(backend.db()) as conn, conn:
             conn.execute("INSERT INTO tenant_sip(tenant_id,username,did,domain,password,updated_at) VALUES(2,'sip-user','100','sip.example.test',?,100)", (backend.protect("synthetic-sip-secret"),))

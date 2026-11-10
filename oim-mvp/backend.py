@@ -44,6 +44,11 @@ def usage_number(value):
     try: return max(0,int(value or 0))
     except (TypeError,ValueError): return 0
 
+def finite_number(value):
+    number=float(value)
+    if not math.isfinite(number): raise ValueError('number must be finite')
+    return number
+
 def usage_details(usage):
     """Flatten Realtime response.done usage without assuming one event shape."""
     usage=usage or {}
@@ -1203,7 +1208,10 @@ Appointment policy:
                 return self.send_json({'ok':False,'error':message},502)
         if path == '/api/admin/tenants':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
-            username=data.get('username','').strip(); name=data.get('name','').strip(); email=data.get('email','').strip(); credits=float(data.get('credits',0)); password=data.get('password') or secrets.token_urlsafe(10)
+            try: credits=finite_number(data.get('credits',0))
+            except (TypeError,ValueError,OverflowError): return self.send_json({'error':'Başlangıç kredisi geçerli ve sonlu bir sayı olmalı'},400)
+            if credits<0: return self.send_json({'error':'Başlangıç kredisi sıfır veya daha büyük olmalı'},400)
+            username=data.get('username','').strip(); name=data.get('name','').strip(); email=data.get('email','').strip(); password=data.get('password') or secrets.token_urlsafe(10)
             if not username or not name: return self.send_json({'error':'Ad ve kullanıcı adı gerekli'},400)
             if len(password) < 8: return self.send_json({'error':'Parola en az 8 karakter olmalı'},400)
             if not data.get('agreement_accepted'): return self.send_json({'error':'Kullanıcı sözleşmesi onayı gerekli'},400)
@@ -1237,16 +1245,29 @@ Appointment policy:
             return self.send_json({'ok':True,'tenant_id':tid})
         if path.startswith('/api/admin/tenants/') and path.endswith('/credits'):
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
-            tid=int(path.split('/')[4]); amount=float(data.get('amount',0)); reason=data.get('reason','Manuel kredi işlemi')
+            try:
+                tid=int(path.split('/')[4]); amount=finite_number(data.get('amount',0)); reason=data.get('reason','Manuel kredi işlemi')
+            except (TypeError,ValueError,OverflowError,IndexError): return self.send_json({'error':'Geçerli müşteri ve sonlu kredi tutarı gerekli'},400)
+            if not isinstance(reason,str) or len(reason)>500: return self.send_json({'error':'İşlem açıklaması geçersiz'},400)
+            conn.execute('BEGIN IMMEDIATE')
             row=conn.execute('SELECT * FROM tenants WHERE id=?',(tid,)).fetchone()
-            if not row or row['role']!='customer': return self.send_json({'error':'Müşteri bulunamadı'},404)
-            if row['credits']+amount < 0: return self.send_json({'error':'Yetersiz kredi'},400)
+            if not row or row['role']!='customer':
+                conn.rollback(); return self.send_json({'error':'Müşteri bulunamadı'},404)
+            if row['credits']+amount < 0:
+                conn.rollback(); return self.send_json({'error':'Yetersiz kredi'},400)
             conn.execute('UPDATE tenants SET credits=credits+? WHERE id=?',(amount,tid)); conn.execute('INSERT INTO ledger(tenant_id,amount,kind,reason,created_at) VALUES(?,?,?,?,?)',(tid,amount,'credit' if amount>=0 else 'debit',reason,now())); conn.commit(); return self.send_json({'tenant':public_tenant(conn.execute('SELECT * FROM tenants WHERE id=?',(tid,)).fetchone())})
         if path == '/api/usage':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
-            tid=int(data.get('tenant_id')); amount=float(data.get('amount',0)); reason=data.get('reason','Kullanım düşümü'); row=conn.execute('SELECT * FROM tenants WHERE id=?',(tid,)).fetchone()
-            if not row or amount <= 0: return self.send_json({'error':'Geçerli tenant ve pozitif kullanım tutarı gerekli'},400)
-            if row['credits'] < amount: return self.send_json({'error':'Yetersiz kredi','balance':row['credits']},400)
+            try: tid=int(data.get('tenant_id')); amount=finite_number(data.get('amount',0)); reason=data.get('reason','Kullanım düşümü')
+            except (TypeError,ValueError,OverflowError): return self.send_json({'error':'Geçerli tenant ve sonlu kullanım tutarı gerekli'},400)
+            if not isinstance(reason,str) or len(reason)>500: return self.send_json({'error':'Kullanım açıklaması geçersiz'},400)
+            if amount <= 0: return self.send_json({'error':'Pozitif kullanım tutarı gerekli'},400)
+            conn.execute('BEGIN IMMEDIATE')
+            row=conn.execute('SELECT * FROM tenants WHERE id=?',(tid,)).fetchone()
+            if not row or row['role']!='customer':
+                conn.rollback(); return self.send_json({'error':'Geçerli müşteri gerekli'},400)
+            if row['credits'] < amount:
+                balance=row['credits']; conn.rollback(); return self.send_json({'error':'Yetersiz kredi','balance':balance},400)
             conn.execute('UPDATE tenants SET credits=credits-? WHERE id=?',(amount,tid)); conn.execute('INSERT INTO ledger(tenant_id,amount,kind,reason,meta,created_at) VALUES(?,?,?,?,?,?)',(tid,-amount,'debit',reason,json.dumps(data,ensure_ascii=False),now())); conn.commit(); return self.send_json({'tenant':public_tenant(conn.execute('SELECT * FROM tenants WHERE id=?',(tid,)).fetchone())})
         if path == '/api/admin/providers':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
@@ -1270,9 +1291,9 @@ Appointment policy:
         if path == '/api/admin/billing':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
             try:
-                rate=float(data.get('credits_per_minute',0.1)); multiplier=float(data.get('ai_multiplier',1)); server=float(data.get('server_hourly_rate',0)); minimum=float(data.get('minimum_credit',10))
+                rate=finite_number(data.get('credits_per_minute',0.1)); multiplier=finite_number(data.get('ai_multiplier',1)); server=finite_number(data.get('server_hourly_rate',0)); minimum=finite_number(data.get('minimum_credit',10))
                 if rate<0 or multiplier<0 or server<0 or minimum<0: raise ValueError()
-            except (TypeError,ValueError): return self.send_json({'error':'Tarife değerleri sıfır veya daha büyük olmalı'},400)
+            except (TypeError,ValueError,OverflowError): return self.send_json({'error':'Tarife değerleri sonlu ve sıfır veya daha büyük olmalı'},400)
             conn.execute('INSERT INTO billing_settings(id,credits_per_minute,ai_multiplier,server_hourly_rate,minimum_credit,updated_at) VALUES(1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET credits_per_minute=excluded.credits_per_minute,ai_multiplier=excluded.ai_multiplier,server_hourly_rate=excluded.server_hourly_rate,minimum_credit=excluded.minimum_credit,updated_at=excluded.updated_at',(rate,multiplier,server,minimum,now())); conn.commit()
             return self.send_json({'ok':True,'credits_per_minute':rate,'ai_multiplier':multiplier,'server_hourly_rate':server,'minimum_credit':minimum})
         if path in {'/api/admin/telegram/test','/api/tenant/telegram/test'}:
