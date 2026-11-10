@@ -841,14 +841,19 @@ class Handler(BaseHTTPRequestHandler):
             if not s: return
             client_id,client_secret=google_credentials()
             if not client_id or not client_secret: return self.send_json({'error':'Google OAuth henüz yapılandırılmadı'},503)
-            state=protect(f"{s['tenant_id']}:{now()}")
+            state=secrets.token_urlsafe(32)
+            s['google_oauth_state']={'value':state,'expires':now()+600}
             query=urllib.parse.urlencode({'client_id':client_id,'redirect_uri':GOOGLE_REDIRECT,'response_type':'code','access_type':'offline','prompt':'consent','scope':GOOGLE_SCOPE,'state':state})
             return self.send_json({'url':'https://accounts.google.com/o/oauth2/v2/auth?'+query})
         if path == '/api/google/callback':
             query=urllib.parse.parse_qs(urlparse(self.path).query); code=(query.get('code') or [''])[0]; state=(query.get('state') or [''])[0]
             try:
-                decoded=cipher().decrypt(state.encode()).decode(); tenant_text,issued=decoded.split(':',1); tenant_id=int(tenant_text)
-                if now()-int(issued)>600: raise ValueError('expired state')
+                session=self.session(); pending=session.get('google_oauth_state') if session else None
+                if (not pending or pending['expires']<now() or not code or
+                    not hmac.compare_digest(state,pending['value'])):
+                    raise ValueError('invalid or expired state')
+                session.pop('google_oauth_state',None)
+                tenant_id=session['tenant_id']
                 client_id,client_secret=google_credentials()
                 body=urllib.parse.urlencode({'code':code,'client_id':client_id,'client_secret':client_secret,'redirect_uri':GOOGLE_REDIRECT,'grant_type':'authorization_code'}).encode()
                 req=urllib.request.Request('https://oauth2.googleapis.com/token',data=body,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST')

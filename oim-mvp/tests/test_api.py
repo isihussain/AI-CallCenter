@@ -35,7 +35,7 @@ class ApiTestCase(unittest.TestCase):
         backend.LOGIN_ATTEMPTS.clear()
         backend.PROVIDER_LIMITS.clear()
         self.external_calls = patch.object(backend.urllib.request, "urlopen", side_effect=AssertionError("External provider calls are forbidden in API tests"))
-        self.external_calls.start()
+        self.external_mock = self.external_calls.start()
         self.addCleanup(self.external_calls.stop)
         with closing(backend.db()) as conn, conn:
             for tid, name, role in ((1, "Demo Administrator", "admin"), (2, "Natalya Kangotan (Demo)", "customer"), (3, "Example Workshop", "customer")):
@@ -75,7 +75,8 @@ class ApiTestCase(unittest.TestCase):
         try:
             conn.request(method, path, payload, headers)
             response = conn.getresponse()
-            result = json.loads(response.read())
+            raw = response.read()
+            result = json.loads(raw) if raw else {}
             return response.status, result, dict(response.getheaders())
         finally:
             conn.close()
@@ -204,6 +205,26 @@ class TenantIsolationTests(ApiTestCase):
         self.assertEqual(data["user"]["id"], 2)
         self.assertIn("Secure", headers["Set-Cookie"])
         self.assertIn("HttpOnly", headers["Set-Cookie"])
+
+    def test_google_oauth_state_is_session_bound_and_one_time(self):
+        with patch.dict("os.environ", {"GOOGLE_CLIENT_ID":"synthetic-client", "GOOGLE_CLIENT_SECRET":"synthetic-secret"}):
+            status, data, _ = self.request("GET", "/api/google/start", tenant=2)
+            self.assertEqual(status, 200)
+            state = backend.urllib.parse.parse_qs(backend.urlparse(data["url"]).query)["state"][0]
+
+            status, _, _ = self.request("GET", f"/api/google/callback?{backend.urllib.parse.urlencode({'state':state,'code':'synthetic-code'})}", tenant=3)
+            self.assertEqual(status, 302)
+            self.assertEqual(self.external_mock.call_count, 0)
+
+            response = types.SimpleNamespace(read=lambda: json.dumps({"access_token":"synthetic-access","refresh_token":"synthetic-refresh","expires_in":3600}).encode())
+            with patch.object(backend.urllib.request, "urlopen", return_value=response) as exchange:
+                status, _, _ = self.request("GET", f"/api/google/callback?{backend.urllib.parse.urlencode({'state':state,'code':'synthetic-code'})}", tenant=2)
+                self.assertEqual(status, 302)
+                self.assertEqual(exchange.call_count, 1)
+
+            status, _, _ = self.request("GET", f"/api/google/callback?{backend.urllib.parse.urlencode({'state':state,'code':'synthetic-code'})}", tenant=2)
+            self.assertEqual(status, 302)
+            self.assertEqual(self.external_mock.call_count, 0)
 
 
 class CallHistoryTests(ApiTestCase):
