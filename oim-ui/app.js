@@ -622,7 +622,7 @@ document.querySelector("#ledger-export")?.addEventListener("click", () => {
   const csv =
     "\\ufeff" +
     rows
-      .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(";"))
+      .map((r) => r.map((v) => window.OIMCSV.cell(v)).join(";"))
       .join("\\r\\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
@@ -977,14 +977,12 @@ document.querySelector("#crm-export")?.addEventListener("click", () => {
   const csv =
     "\\ufeff" +
     rows
-      .map((r) =>
-        r.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(";"),
-      )
+      .map((r) => r.map((v) => window.OIMCSV.cell(v)).join(";"))
       .join("\\r\\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "oim-crm.xls";
+  a.download = "oim-crm.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
@@ -1422,13 +1420,11 @@ async function downloadReport(event) {
         "",
         item.status,
       ]);
-    const quote = (value) => {
-      let text = String(value ?? "");
-      if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
-      return '"' + text.replace(/"/g, '""') + '"';
-    };
     const csv =
-      "\ufeff" + rows.map((row) => row.map(quote).join(";")).join("\r\n");
+      "\ufeff" +
+      rows
+        .map((row) => row.map((value) => window.OIMCSV.cell(value)).join(";"))
+        .join("\r\n");
     const url = URL.createObjectURL(
       new Blob([csv], { type: "text/csv;charset=utf-8" }),
     );

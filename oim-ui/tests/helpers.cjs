@@ -16,7 +16,7 @@ function environment(html,locale="tr",fetch=()=>{throw Error("Unexpected fetch")
   const context=vm.createContext({window,document:window.document,localStorage,MutationObserver:window.MutationObserver,
     CustomEvent:window.CustomEvent,Event:window.Event,Intl,console,setTimeout,clearTimeout,URLSearchParams,AbortController,FormData:FormValues,fetch});
   function run(name){vm.runInContext(fs.readFileSync(path.join(UI,name),"utf8"),context,{filename:name});}
-  run("locales.js");run("i18n.js");
+  run("locales.js");run("i18n.js");run("csv.js");
   return {window,document:window.document,i18n:window.OIMI18n,context,storage,run};
 }
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
