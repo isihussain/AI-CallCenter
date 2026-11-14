@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       acorn:
-        specifier: 8.15.0
-        version: 8.15.0
+        specifier: 8.19.0
+        version: 8.19.0
       linkedom:
         specifier: 0.18.12
         version: 0.18.12
@@ -20,8 +20,8 @@ importers:
 
 packages:
 
-  acorn@8.15.0:
-    resolution: {integrity: sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==}
+  acorn@8.19.0:
+    resolution: {integrity: sha512-oJlA3XiRm7Cyk6qFD2Jn8ak9B7jSy0qy00ADO3+8dpT0LSjFihQYv4C02LFCSYJV3Q37xYwwRy5m+IpIiUzqWw==}
     engines: {node: '>=0.4.0'}
     hasBin: true
 
@@ -87,7 +87,7 @@ packages:
 
 snapshots:
 
-  acorn@8.15.0: {}
+  acorn@8.19.0: {}
 
   boolbase@1.0.0: {}
 
@@ -149,4 +149,3 @@ snapshots:
   prettier@3.6.2: {}
 
   uhyphen@0.2.0: {}
-

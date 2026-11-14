@@ -10,7 +10,7 @@
     "format": "prettier --write oim-ui/app.js oim-ui/call-history.js oim-ui/operations.js oim-ui/admin-console.js oim-ui/admin-console.css oim-ui/i18n.js oim-ui/locales.js oim-ui/index.html oim-ui/styles.css"
   },
   "devDependencies": {
-    "acorn": "8.15.0",
+    "acorn": "8.19.0",
     "linkedom": "0.18.12",
     "prettier": "3.6.2"
   }
