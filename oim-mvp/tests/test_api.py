@@ -1,9 +1,11 @@
 """HTTP integration checks using temporary storage and synthetic customer data."""
 import http.client
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import sys
@@ -33,6 +35,7 @@ class ApiTestCase(unittest.TestCase):
         self.addCleanup(self.secret_patch.stop)
         backend.SESSIONS.clear()
         backend.LOGIN_ATTEMPTS.clear()
+        backend.LOGIN_LAST_PRUNE = 0
         backend.PROVIDER_LIMITS.clear()
         self.external_calls = patch.object(backend.urllib.request, "urlopen", side_effect=AssertionError("External provider calls are forbidden in API tests"))
         self.external_mock = self.external_calls.start()
@@ -89,6 +92,70 @@ class ApiTestCase(unittest.TestCase):
 
 
 class TenantIsolationTests(ApiTestCase):
+    def test_concurrent_failed_logins_cannot_bypass_the_lockout(self):
+        def fail_login(_):
+            return self.request("POST", "/api/login", {"username":"test-2", "password":"wrong"}, tenant=None)[0]
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            statuses=list(pool.map(fail_login,range(6)))
+
+        self.assertEqual(statuses.count(401),5)
+        self.assertEqual(statuses.count(429),1)
+        self.assertEqual(backend.LOGIN_ATTEMPTS[("127.0.0.1","test-2")]["count"],5)
+
+    def test_login_rejects_oversized_request_bodies(self):
+        with patch.object(backend,"MAX_REQUEST_BODY_BYTES",1):
+            status,_,_=self.request("POST","/api/login",{"username":"test-2","password":"wrong"},tenant=None)
+        self.assertEqual(status,413)
+
+    def test_full_login_throttle_cache_does_not_block_valid_users(self):
+        current=backend.now()
+        backend.LOGIN_ATTEMPTS.update({(f"198.51.100.{index}",f"user-{index}"):{"count":5,"first":current,"locked_until":current+900} for index in range(backend.LOGIN_MAX_ENTRIES)})
+        failed_status,_,_=self.request("POST","/api/login",{"username":"new-user","password":"wrong"},tenant=None)
+        self.assertEqual(failed_status,401)
+        self.assertEqual(len(backend.LOGIN_ATTEMPTS),backend.LOGIN_MAX_ENTRIES)
+        status,_,_=self.request("POST","/api/login",{"username":"test-2","password":"Synthetic-test-password"},tenant=None)
+        self.assertEqual(status,200)
+        self.assertEqual(len(backend.LOGIN_ATTEMPTS),backend.LOGIN_MAX_ENTRIES)
+
+    def test_concurrent_failures_cannot_overfill_login_throttle_cache(self):
+        current=backend.now()
+        backend.LOGIN_ATTEMPTS.update({(f"198.51.100.{index}",f"user-{index}"):{"count":5,"first":current,"locked_until":current+900} for index in range(backend.LOGIN_MAX_ENTRIES-1)})
+        barrier=threading.Barrier(2)
+
+        def fail_login(username):
+            return self.request("POST","/api/login",{"username":username,"password":"wrong"},tenant=None)[0]
+
+        with patch.object(backend,"check_password",side_effect=lambda *_: (barrier.wait(timeout=2) and False)):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                statuses=list(pool.map(fail_login,("test-2","test-3")))
+
+        self.assertEqual(statuses,[401,401])
+        self.assertEqual(len(backend.LOGIN_ATTEMPTS),backend.LOGIN_MAX_ENTRIES)
+
+    def test_recording_tenant_requires_an_explicit_prefix(self):
+        self.assertEqual(backend.recording_tenant_id("t3-20261114-caller-123.wav"),3)
+        self.assertEqual(backend.recording_tenant_id("T12-caller-123.WAV"),12)
+        self.assertIsNone(backend.recording_tenant_id("call-123.wav"))
+        self.assertIsNone(backend.recording_tenant_id("t0-call-123.wav"))
+        self.assertIsNone(backend.recording_tenant_id("t2-.wav"))
+        self.assertIsNone(backend.recording_tenant_id("t9223372036854775808-call.wav"))
+
+    def test_recording_open_rejects_symlinks_and_non_regular_files(self):
+        root=Path(self.directory.name)
+        (root/"audio.wav").write_bytes(b"synthetic audio")
+        (root/"folder.wav").mkdir()
+        os.symlink(root/"audio.wav",root/"linked.wav")
+        root_fd=os.open(root,os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close,root_fd)
+
+        with backend.open_recording(root_fd,"audio.wav") as recording:
+            self.assertEqual(recording.read(),b"synthetic audio")
+        with self.assertRaises(OSError):
+            backend.open_recording(root_fd,"linked.wav")
+        with self.assertRaises(OSError):
+            backend.open_recording(root_fd,"folder.wav")
+
     def test_login_throttle_separates_clients_behind_a_trusted_proxy(self):
         with patch.object(backend, "TRUST_PROXY_HEADERS", True):
             for _ in range(5):
@@ -426,6 +493,154 @@ class OperationsFeatureTests(ApiTestCase):
         self.assertEqual(data,{"ok":True,"accepted":False,"reason":"tenant_unresolved"})
         with closing(backend.db()) as conn:
             self.assertIsNone(conn.execute("SELECT 1 FROM calls WHERE call_id='unrouted-call'").fetchone())
+
+    def test_realtime_webhook_deduplicates_calls_and_preserves_tenant_ownership(self):
+        with closing(backend.db()) as conn, conn:
+            conn.executemany("INSERT INTO tenant_sip(tenant_id,username,did,domain,password,updated_at) VALUES(?,?,?,'sip.example.test','',?)",
+                             ((2,"sip-2","+1 555 000 2000",backend.now()),(3,"sip-3","+1 555 000 3000",backend.now())))
+
+        secret_key=b"synthetic-webhook-key"
+        secret="whsec_"+backend.base64.b64encode(secret_key).decode()
+
+        def signed_headers(event, webhook_id):
+            raw=json.dumps(event).encode()
+            timestamp=str(backend.now())
+            signed=(webhook_id+'.'+timestamp+'.').encode()+raw
+            signature=backend.base64.b64encode(backend.hmac.new(secret_key,signed,backend.hashlib.sha256).digest()).decode()
+            return {"webhook-id":webhook_id,"webhook-timestamp":timestamp,"webhook-signature":"v1,"+signature}
+
+        first_event={"type":"realtime.call.incoming","data":{"call_id":"realtime-call-id","to":"+1 555 000 2000"}}
+        changed_tenant_event={"type":"realtime.call.incoming","data":{"call_id":"realtime-call-id","to":"+1 555 000 3000"}}
+        with patch.dict("os.environ",{"OPENAI_WEBHOOK_SECRET":secret}), \
+             patch.object(backend,"configured_openai",return_value=("synthetic-openai-key","gpt-realtime")), \
+             patch.object(backend,"knowledge_context",return_value=""), \
+             patch.object(backend,"start_realtime_sideband") as sideband, \
+             patch.object(backend.urllib.request,"urlopen",return_value=object()) as provider_accept:
+            first_status,first_data,_=self.request("POST","/api/openai/webhook",first_event,tenant=None,extra_headers=signed_headers(first_event,"event-first"))
+            same_event_status,same_event_data,_=self.request("POST","/api/openai/webhook",first_event,tenant=None,extra_headers=signed_headers(first_event,"event-first"))
+            duplicate_status,duplicate_data,_=self.request("POST","/api/openai/webhook",first_event,tenant=None,extra_headers=signed_headers(first_event,"event-retry"))
+            conflict_status,_,_=self.request("POST","/api/openai/webhook",changed_tenant_event,tenant=None,extra_headers=signed_headers(changed_tenant_event,"event-first"))
+            mismatch_status,mismatch_data,_=self.request("POST","/api/openai/webhook",changed_tenant_event,tenant=None,extra_headers=signed_headers(changed_tenant_event,"event-mismatch"))
+
+        self.assertEqual(first_status,200)
+        self.assertEqual(first_data,{"ok":True,"accepted":True})
+        self.assertEqual(same_event_status,200)
+        self.assertEqual(same_event_data,{"ok":True,"accepted":True,"duplicate":True})
+        self.assertEqual(duplicate_status,200)
+        self.assertEqual(duplicate_data,{"ok":True,"accepted":True,"duplicate":True})
+        self.assertEqual(conflict_status,409)
+        self.assertEqual(mismatch_status,200)
+        self.assertEqual(mismatch_data,{"ok":True,"accepted":False,"reason":"call_tenant_mismatch"})
+        self.assertEqual(provider_accept.call_count,1)
+        self.assertEqual(sideband.call_count,1)
+        with closing(backend.db()) as conn:
+            call=conn.execute("SELECT tenant_id,status FROM calls WHERE call_id='realtime-call-id'").fetchone()
+        self.assertEqual((call["tenant_id"],call["status"]),(2,"active"))
+
+    def test_realtime_webhook_redelivery_retries_a_failed_accept(self):
+        with closing(backend.db()) as conn, conn:
+            conn.execute("INSERT INTO tenant_sip(tenant_id,username,did,domain,password,updated_at) VALUES(2,'sip-2','+1 555 000 2000','sip.example.test','',?)",(backend.now(),))
+
+        event={"type":"realtime.call.incoming","data":{"call_id":"retryable-call-id","to":"+1 555 000 2000"}}
+        raw=json.dumps(event).encode()
+        secret_key=b"synthetic-webhook-key"
+        secret="whsec_"+backend.base64.b64encode(secret_key).decode()
+        webhook_id="retryable-webhook-event"
+
+        def signed_headers():
+            timestamp=str(backend.now())
+            signed=(webhook_id+'.'+timestamp+'.').encode()+raw
+            signature=backend.base64.b64encode(backend.hmac.new(secret_key,signed,backend.hashlib.sha256).digest()).decode()
+            return {"webhook-id":webhook_id,"webhook-timestamp":timestamp,"webhook-signature":"v1,"+signature}
+
+        provider_responses=[backend.urllib.error.URLError("synthetic transient failure"),object()]
+        with patch.dict("os.environ",{"OPENAI_WEBHOOK_SECRET":secret}), \
+             patch.object(backend,"configured_openai",return_value=("synthetic-openai-key","gpt-realtime")), \
+             patch.object(backend,"knowledge_context",return_value=""), \
+             patch.object(backend,"start_realtime_sideband") as sideband, \
+             patch.object(backend.urllib.request,"urlopen",side_effect=provider_responses) as provider_accept:
+            first_status,_,_=self.request("POST","/api/openai/webhook",event,tenant=None,extra_headers=signed_headers())
+            retry_status,retry_data,_=self.request("POST","/api/openai/webhook",event,tenant=None,extra_headers=signed_headers())
+
+        self.assertEqual(first_status,502)
+        self.assertEqual(retry_status,200)
+        self.assertEqual(retry_data,{"ok":True,"accepted":True})
+        self.assertEqual(provider_accept.call_count,2)
+        self.assertEqual(sideband.call_count,1)
+        with closing(backend.db()) as conn:
+            call=conn.execute("SELECT status,failure_code FROM calls WHERE call_id='retryable-call-id'").fetchone()
+            receipt=conn.execute("SELECT status FROM webhook_receipts WHERE webhook_id=?",(webhook_id,)).fetchone()
+        self.assertEqual((call["status"],call["failure_code"]),("active",""))
+        self.assertEqual(receipt["status"],"accepted")
+
+    def test_realtime_webhook_redelivery_retries_sideband_without_reaccepting(self):
+        with closing(backend.db()) as conn, conn:
+            conn.execute("INSERT INTO tenant_sip(tenant_id,username,did,domain,password,updated_at) VALUES(2,'sip-2','+1 555 000 2000','sip.example.test','',?)",(backend.now(),))
+
+        event={"type":"realtime.call.incoming","data":{"call_id":"sideband-retry-call","to":"+1 555 000 2000"}}
+        raw=json.dumps(event).encode()
+        secret_key=b"synthetic-webhook-key"
+        secret="whsec_"+backend.base64.b64encode(secret_key).decode()
+        webhook_id="sideband-retry-event"
+
+        def signed_headers():
+            timestamp=str(backend.now())
+            signed=(webhook_id+'.'+timestamp+'.').encode()+raw
+            signature=backend.base64.b64encode(backend.hmac.new(secret_key,signed,backend.hashlib.sha256).digest()).decode()
+            return {"webhook-id":webhook_id,"webhook-timestamp":timestamp,"webhook-signature":"v1,"+signature}
+
+        with patch.dict("os.environ",{"OPENAI_WEBHOOK_SECRET":secret}), \
+             patch.object(backend,"configured_openai",return_value=("synthetic-openai-key","gpt-realtime")), \
+             patch.object(backend,"knowledge_context",return_value=""), \
+             patch.object(backend,"start_realtime_sideband",side_effect=[RuntimeError("synthetic sideband error"),None]) as sideband, \
+             patch.object(backend.urllib.request,"urlopen",return_value=object()) as provider_accept:
+            first_status,_,_=self.request("POST","/api/openai/webhook",event,tenant=None,extra_headers=signed_headers())
+            retry_status,retry_data,_=self.request("POST","/api/openai/webhook",event,tenant=None,extra_headers=signed_headers())
+
+        self.assertEqual(first_status,502)
+        self.assertEqual(retry_status,200)
+        self.assertEqual(retry_data,{"ok":True,"accepted":True})
+        self.assertEqual(provider_accept.call_count,1)
+        self.assertEqual(sideband.call_count,2)
+        with closing(backend.db()) as conn:
+            call=conn.execute("SELECT status,failure_code FROM calls WHERE call_id='sideband-retry-call'").fetchone()
+            receipt=conn.execute("SELECT status FROM webhook_receipts WHERE webhook_id=?",(webhook_id,)).fetchone()
+        self.assertEqual((call["status"],call["failure_code"]),("active",""))
+        self.assertEqual(receipt["status"],"accepted")
+
+    def test_realtime_webhook_does_not_acknowledge_an_unfinished_call(self):
+        with closing(backend.db()) as conn, conn:
+            conn.execute("INSERT INTO tenant_sip(tenant_id,username,did,domain,password,updated_at) VALUES(2,'sip-2','+1 555 000 2000','sip.example.test','',?)",(backend.now(),))
+
+        event={"type":"realtime.call.incoming","data":{"call_id":"unfinished-webhook-call","to":"+1 555 000 2000"}}
+        raw=json.dumps(event).encode()
+        secret_key=b"synthetic-webhook-key"
+        secret="whsec_"+backend.base64.b64encode(secret_key).decode()
+        webhook_id="unfinished-webhook-event"
+
+        def signed_headers(event_id):
+            timestamp=str(backend.now())
+            signed=(event_id+'.'+timestamp+'.').encode()+raw
+            signature=backend.base64.b64encode(backend.hmac.new(secret_key,signed,backend.hashlib.sha256).digest()).decode()
+            return {"webhook-id":event_id,"webhook-timestamp":timestamp,"webhook-signature":"v1,"+signature}
+
+        with closing(backend.db()) as conn, conn:
+            conn.execute("INSERT INTO calls(tenant_id,call_id,status,started_at) VALUES(2,?,'incoming',?)",(event["data"]["call_id"],backend.now()))
+            conn.execute("INSERT INTO webhook_receipts(webhook_id,body_sha256,call_id,status,claim_token,created_at,updated_at) VALUES(?,?,?,'processing','active-claim',?,?)",(webhook_id,backend.hashlib.sha256(raw).hexdigest(),event["data"]["call_id"],backend.now(),backend.now()))
+
+        with patch.dict("os.environ",{"OPENAI_WEBHOOK_SECRET":secret}), \
+             patch.object(backend,"configured_openai",return_value=("synthetic-openai-key","gpt-realtime")), \
+             patch.object(backend.urllib.request,"urlopen",side_effect=AssertionError("Provider must not be called while another webhook owns the event")):
+            status,data,_=self.request("POST","/api/openai/webhook",event,tenant=None,extra_headers=signed_headers(webhook_id))
+            other_status,other_data,_=self.request("POST","/api/openai/webhook",event,tenant=None,extra_headers=signed_headers("second-event-id-for-same-call"))
+
+        self.assertEqual(status,503)
+        self.assertEqual(data,{"ok":False,"accepted":False,"retry":True})
+        self.assertEqual(other_status,503)
+        self.assertEqual(other_data,{"ok":False,"accepted":False,"retry":True})
+        with closing(backend.db()) as conn:
+            receipt=conn.execute("SELECT status,claim_token FROM webhook_receipts WHERE webhook_id=?",(webhook_id,)).fetchone()
+        self.assertEqual((receipt["status"],receipt["claim_token"]),("processing","active-claim"))
 
     def test_callback_requests_are_idempotent_and_tenant_isolated(self):
         with closing(backend.db()) as conn, conn:

@@ -91,7 +91,9 @@ To restore, create the target stack, stop its API, copy the backed-up `data` con
 
 The image does not include Asterisk, SIP trunk credentials, host sudo privileges, or the operator-specific `oim-apply-sip` helper. Provision the PBX and inbound route through your operator's supported workflow. The panel cannot apply host PBX settings until that integration is implemented for your deployment.
 
-For recordings from a separate PBX, add an operator-specific Compose override that mounts its recording directory at `/recordings:ro`. UID 10001 needs read access. Validate recording names and call identifiers with a non-production call before enabling delivery.
+Both supplied Nginx configurations cap request bodies at 1 MiB and limit `/api/login` to 20 requests per minute per client address, with a burst of five.
+
+For recordings from a separate PBX, add an operator-specific Compose override that mounts its recording directory at `/recordings:ro`. UID 10001 needs read access. Name each file `t<TENANT_ID>-<call-details>.wav`, for example `t2-20261114-caller-123.wav`. Files without a valid tenant prefix, larger than 50 MiB, or that are symbolic links or non-regular files are skipped. Validate recording names and call identifiers with a non-production call before enabling delivery.
 
 ## Run the container smoke check
 

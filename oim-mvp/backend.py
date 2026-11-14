@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import asyncio, base64, hashlib, hmac, ipaddress, json, math, os, re, secrets, sqlite3, subprocess, threading, time
+import asyncio, base64, hashlib, hmac, ipaddress, json, math, os, re, secrets, sqlite3, stat, subprocess, threading, time
 import urllib.error, urllib.parse, urllib.request
 from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
@@ -15,6 +15,11 @@ SESSION_TTL = 60 * 60 * 12
 SESSIONS = {}
 LOGIN_ATTEMPTS = {}
 LOGIN_LOCK = threading.Lock()
+LOGIN_STRIPES = tuple(threading.Lock() for _ in range(64))
+LOGIN_LAST_PRUNE = 0
+LOGIN_MAX_ENTRIES = 10000
+MAX_REQUEST_BODY_BYTES = 1024 * 1024
+MAX_RECORDING_BYTES = 50 * 1024 * 1024
 SECRET_PATH = os.environ.get('OIM_SECRET', '/var/lib/oim/.secret')
 PUBLIC_URL = os.environ.get('OIM_PUBLIC_URL', 'http://localhost:8080').rstrip('/')
 
@@ -106,6 +111,9 @@ def db():
       CREATE TABLE IF NOT EXISTS billing_settings(id INTEGER PRIMARY KEY CHECK(id=1), credits_per_minute REAL NOT NULL DEFAULT 0.1, ai_multiplier REAL NOT NULL DEFAULT 1, server_hourly_rate REAL NOT NULL DEFAULT 0, minimum_credit REAL NOT NULL DEFAULT 10, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS tenant_sip(tenant_id INTEGER PRIMARY KEY, username TEXT NOT NULL DEFAULT '', did TEXT NOT NULL DEFAULT '', domain TEXT NOT NULL DEFAULT '', password TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
       CREATE TABLE IF NOT EXISTS calls(id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, call_id TEXT UNIQUE NOT NULL, caller TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'incoming', transcript TEXT NOT NULL DEFAULT '', started_at INTEGER NOT NULL, ended_at INTEGER, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
+      CREATE TABLE IF NOT EXISTS webhook_receipts(webhook_id TEXT PRIMARY KEY, body_sha256 TEXT NOT NULL, call_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'processing', claim_token TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS webhook_receipts_created_at ON webhook_receipts(created_at);
+      CREATE INDEX IF NOT EXISTS webhook_receipts_call_status ON webhook_receipts(call_id,status,updated_at);
       CREATE INDEX IF NOT EXISTS calls_tenant_started_id ON calls(tenant_id,started_at DESC,id DESC);
       CREATE TABLE IF NOT EXISTS call_usage(call_id TEXT PRIMARY KEY, model TEXT NOT NULL DEFAULT '', input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, total_tokens INTEGER NOT NULL DEFAULT 0, input_text_tokens INTEGER NOT NULL DEFAULT 0, input_audio_tokens INTEGER NOT NULL DEFAULT 0, input_cached_tokens INTEGER NOT NULL DEFAULT 0, output_text_tokens INTEGER NOT NULL DEFAULT 0, output_audio_tokens INTEGER NOT NULL DEFAULT 0, estimated_openai_usd REAL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS appointments(id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, call_id TEXT, customer_name TEXT NOT NULL, phone TEXT NOT NULL, service TEXT NOT NULL, appointment_at TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'confirmed', created_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
@@ -122,6 +130,8 @@ def db():
       CREATE TABLE IF NOT EXISTS tenant_retention(tenant_id INTEGER PRIMARY KEY, transcript_retention_days INTEGER, updated_at INTEGER NOT NULL, last_purged_at INTEGER, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
     ''')
     columns={row['name'] for row in conn.execute('PRAGMA table_info(calls)').fetchall()}
+    receipt_columns={row['name'] for row in conn.execute('PRAGMA table_info(webhook_receipts)').fetchall()}
+    if 'claim_token' not in receipt_columns: conn.execute("ALTER TABLE webhook_receipts ADD COLUMN claim_token TEXT NOT NULL DEFAULT ''")
     provider_columns={row['name'] for row in conn.execute('PRAGMA table_info(provider_settings)').fetchall()}
     for name,definition in [('voice_id',"TEXT NOT NULL DEFAULT ''"),('check_status',"TEXT NOT NULL DEFAULT 'unchecked'"),('checked_at','INTEGER')]:
         if name not in provider_columns: conn.execute(f'ALTER TABLE provider_settings ADD COLUMN {name} {definition}')
@@ -258,7 +268,7 @@ def telegram_config(tenant_id):
     if not row: return {'token':'','chat_id':'','enabled':False}
     return {'token':reveal(row['bot_token']),'chat_id':row['chat_id'],'enabled':bool(row['enabled'])}
 
-def telegram_request(method, tenant_id, fields=None, file_path=None):
+def telegram_request(method, tenant_id, fields=None, file_path=None, file_handle=None):
     cfg=telegram_config(tenant_id); token=cfg['token']
     if not token: raise ValueError('Telegram bot tokeni tanımlı değil')
     url=f'https://api.telegram.org/bot{token}/{method}'; fields={k:str(v) for k,v in (fields or {}).items()}
@@ -266,7 +276,10 @@ def telegram_request(method, tenant_id, fields=None, file_path=None):
         boundary='----oim'+secrets.token_hex(12); chunks=[]
         for key,value in fields.items(): chunks.extend([f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode()])
         name=os.path.basename(file_path); chunks.append(f'--{boundary}\r\nContent-Disposition: form-data; name="document"; filename="{name}"\r\nContent-Type: audio/wav\r\n\r\n'.encode())
-        with open(file_path,'rb') as handle: chunks.append(handle.read())
+        if file_handle is None: raise ValueError('Recording must be opened safely before upload')
+        file_handle.seek(0); content=file_handle.read(MAX_RECORDING_BYTES+1)
+        if len(content)>MAX_RECORDING_BYTES: raise ValueError('Recording exceeds the upload size limit')
+        chunks.append(content)
         chunks.append(f'\r\n--{boundary}--\r\n'.encode()); body=b''.join(chunks); headers={'Content-Type':f'multipart/form-data; boundary={boundary}'}
     else:
         body=urllib.parse.urlencode(fields).encode(); headers={'Content-Type':'application/x-www-form-urlencoded'}
@@ -275,27 +288,54 @@ def telegram_request(method, tenant_id, fields=None, file_path=None):
     if not result.get('ok'): raise RuntimeError(result.get('description','Telegram API hatası'))
     return result
 
+def recording_tenant_id(filename):
+    match=re.fullmatch(r't([1-9][0-9]{0,18})-.+\.wav',filename,re.IGNORECASE)
+    if not match: return None
+    tenant_id=int(match.group(1))
+    return tenant_id if tenant_id<=9223372036854775807 else None
+
+def open_recording(root_fd, filename):
+    if not hasattr(os,'O_NOFOLLOW') or os.open not in os.supports_dir_fd:
+        raise OSError('Safe recording opens are not supported on this platform')
+    flags=os.O_RDONLY | os.O_NOFOLLOW | getattr(os,'O_CLOEXEC',0) | getattr(os,'O_NONBLOCK',0)
+    file_fd=os.open(filename,flags,dir_fd=root_fd)
+    try:
+        if not stat.S_ISREG(os.fstat(file_fd).st_mode): raise OSError('Recording is not a regular file')
+        return os.fdopen(file_fd,'rb')
+    except Exception:
+        os.close(file_fd)
+        raise
+
 def recording_watcher():
     root=os.environ.get('OIM_RECORDINGS','/var/spool/asterisk/monitor/oim')
     while True:
         try:
             if os.path.isdir(root):
-                for name in sorted(os.listdir(root)):
-                    if not name.lower().endswith('.wav'): continue
-                    path=os.path.join(root,name)
-                    if now()-int(os.path.getmtime(path)) < 5: continue
-                    match=re.match(r'^t(\d+)-',name)
-                    tenant_id=int(match.group(1)) if match else 2
-                    cfg=telegram_config(tenant_id)
-                    if not (cfg['enabled'] and cfg['token'] and cfg['chat_id']): continue
-                    conn=db(); row=conn.execute('SELECT * FROM telegram_deliveries WHERE path=?',(path,)).fetchone(); conn.close()
-                    if row and (row['status']=='sent' or row['attempts']>=5): continue
-                    caller=(name.rsplit('-',2)[-2] if name.count('-')>=2 else 'Bilinmiyor') or 'Bilinmiyor'
-                    try:
-                        telegram_request('sendDocument',tenant_id,{'chat_id':cfg['chat_id'],'caption':f'OIM çağrı kaydı\nArayan: {caller}\nDosya: {name}'},path)
-                        conn=db(); conn.execute('INSERT INTO telegram_deliveries(path,status,attempts,sent_at) VALUES(?,?,1,?) ON CONFLICT(path) DO UPDATE SET status="sent",attempts=attempts+1,error="",sent_at=excluded.sent_at',(path,'sent',now())); conn.commit(); conn.close()
-                    except Exception as exc:
-                        conn=db(); conn.execute('INSERT INTO telegram_deliveries(path,status,attempts,error) VALUES(?,?,1,?) ON CONFLICT(path) DO UPDATE SET status="failed",attempts=attempts+1,error=excluded.error',(path,'failed',str(exc)[:500])); conn.commit(); conn.close()
+                if not hasattr(os,'O_NOFOLLOW') or not hasattr(os,'O_DIRECTORY') or os.open not in os.supports_dir_fd:
+                    raise OSError('Safe recording directory opens are not supported on this platform')
+                root_flags=os.O_RDONLY | getattr(os,'O_DIRECTORY',0) | getattr(os,'O_NOFOLLOW',0) | getattr(os,'O_CLOEXEC',0)
+                root_fd=os.open(root,root_flags)
+                try:
+                    for name in sorted(os.listdir(root_fd)):
+                        tenant_id=recording_tenant_id(name)
+                        if tenant_id is None: continue
+                        path=os.path.join(root,name)
+                        cfg=telegram_config(tenant_id)
+                        if not (cfg['enabled'] and cfg['token'] and cfg['chat_id']): continue
+                        try: recording=open_recording(root_fd,name)
+                        except (OSError,ValueError): continue
+                        with recording:
+                            metadata=os.fstat(recording.fileno())
+                            if now()-int(metadata.st_mtime) < 5 or metadata.st_size>MAX_RECORDING_BYTES: continue
+                            conn=db(); row=conn.execute('SELECT * FROM telegram_deliveries WHERE path=?',(path,)).fetchone(); conn.close()
+                            if row and (row['status']=='sent' or row['attempts']>=5): continue
+                            caller=(name.rsplit('-',2)[-2] if name.count('-')>=2 else 'Bilinmiyor') or 'Bilinmiyor'
+                            try:
+                                telegram_request('sendDocument',tenant_id,{'chat_id':cfg['chat_id'],'caption':f'OIM çağrı kaydı\nArayan: {caller}\nDosya: {name}'},path,recording)
+                                conn=db(); conn.execute('INSERT INTO telegram_deliveries(path,status,attempts,sent_at) VALUES(?,?,1,?) ON CONFLICT(path) DO UPDATE SET status="sent",attempts=attempts+1,error="",sent_at=excluded.sent_at',(path,'sent',now())); conn.commit(); conn.close()
+                            except Exception as exc:
+                                conn=db(); conn.execute('INSERT INTO telegram_deliveries(path,status,attempts,error) VALUES(?,?,1,?) ON CONFLICT(path) DO UPDATE SET status="failed",attempts=attempts+1,error=excluded.error',(path,'failed',str(exc)[:500])); conn.commit(); conn.close()
+                finally: os.close(root_fd)
         except Exception as exc: print('Recording watcher error',repr(exc),flush=True)
         time.sleep(5)
 
@@ -316,22 +356,33 @@ def opening_response(tenant_id):
         'instructions':'Start speaking now, even if the caller has not spoken. Say only the following greeting exactly as written, in its original language. Do not add information or call tools. Then wait for the caller.\n'+greeting,
     }}
 
-async def realtime_sideband(call_id, tenant_id):
+async def realtime_sideband(call_id, tenant_id, startup=None):
     import websockets
     key,_=configured_openai(); headers={'Authorization':'Bearer '+key,'OpenAI-Beta':'realtime=v1'}
     uri='wss://api.openai.com/v1/realtime?call_id='+call_id
+    connected=False
+    startup_failed=False
     try:
-        async with websockets.connect(uri,extra_headers=headers,ping_interval=20,ping_timeout=20) as ws:
+        async with websockets.connect(uri,extra_headers=headers,ping_interval=20,ping_timeout=20,open_timeout=10) as ws:
+            connected=True
             session_model='gpt-realtime'
-            await ws.send(json.dumps(opening_response(tenant_id),ensure_ascii=False))
+            await asyncio.wait_for(ws.send(json.dumps(opening_response(tenant_id),ensure_ascii=False)),timeout=5)
+            if startup: startup['ready'].set()
             print('Realtime opening requested for',call_id,flush=True)
             async for raw in ws:
+                if startup and startup['cancelled'].is_set():
+                    startup_failed=True
+                    return
                 event=json.loads(raw); event_type=event.get('type','')
                 if event_type == 'session.created':
                     session_model=((event.get('session') or {}).get('model') or session_model)
                 if event_type == 'response.created' and ((event.get('response') or {}).get('metadata') or {}).get('purpose') == 'opening_greeting':
                     print('Realtime opening started for',call_id,flush=True)
                 if event_type == 'error':
+                    if startup and not startup['ready'].is_set():
+                        startup['error']=RuntimeError('Realtime provider rejected sideband startup')
+                        startup['ready'].set(); startup_failed=True
+                        return
                     record_call_failure(call_id,'provider_error')
                 if event_type == 'response.done':
                     response=event.get('response') or {}
@@ -374,14 +425,29 @@ async def realtime_sideband(call_id, tenant_id):
                     await ws.send(json.dumps({'type':'response.create'}))
                 if event_type in {'session.ended','realtime.call.ended'}: save_call_event(call_id,'ended'); break
     except websockets.ConnectionClosed:
-        pass
-    except Exception:
-        record_call_failure(call_id,'sideband_failed')
+        if startup and not startup['ready'].is_set():
+            startup['error']=RuntimeError('Realtime sideband connection closed before startup')
+            startup['ready'].set(); startup_failed=True
+    except Exception as exc:
+        if startup and not startup['ready'].is_set():
+            startup['error']=exc
+            startup['ready'].set(); startup_failed=True
+        else:
+            record_call_failure(call_id,'sideband_failed')
     finally:
-        save_call_event(call_id,'ended')
+        if startup and not startup['ready'].is_set():
+            startup['error']=RuntimeError('Realtime sideband ended before startup')
+            startup['ready'].set(); startup_failed=True
+        if connected and not startup_failed: save_call_event(call_id,'ended')
 
 def start_realtime_sideband(call_id, tenant_id):
-    threading.Thread(target=lambda: asyncio.run(realtime_sideband(call_id,tenant_id)),daemon=True,name='realtime-'+call_id[-8:]).start()
+    startup={'ready':threading.Event(),'cancelled':threading.Event(),'error':None}
+    thread=threading.Thread(target=lambda: asyncio.run(realtime_sideband(call_id,tenant_id,startup)),daemon=True,name='realtime-'+call_id[-8:])
+    thread.start()
+    if not startup['ready'].wait(timeout=20):
+        startup['cancelled'].set()
+        raise TimeoutError('Realtime sideband startup timed out')
+    if startup['error']: raise RuntimeError('Realtime sideband could not connect') from startup['error']
 
 def hangup_realtime_call(call_id, delay=6):
     """Give the assistant time to say goodbye, then terminate the SIP leg."""
@@ -845,7 +911,7 @@ class Handler(BaseHTTPRequestHandler):
         body=json.dumps(data,ensure_ascii=False).encode()
         self.send_response(status); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Content-Length',str(len(body))); self.send_header('Cache-Control','no-store'); self.end_headers(); self.wfile.write(body)
     def body(self):
-        length=int(self.headers.get('Content-Length','0')); return json.loads(self.rfile.read(length) or '{}')
+        return json.loads(getattr(self,'_request_body',b'') or b'{}')
     def session(self):
         cookie=self.headers.get('Cookie',''); token=next((x.split('=',1)[1] for x in cookie.split('; ') if x.startswith('oim_session=')),None)
         info=SESSIONS.get(token)
@@ -1011,25 +1077,73 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({'error':'Bulunamadı'},404)
     def do_POST(self):
         path=urlparse(self.path).path
+        if self.headers.get('Transfer-Encoding'):
+            self.close_connection=True
+            return self.send_json({'error':'İstek gövdesi biçimi geçersiz'},400)
+        content_lengths=self.headers.get_all('Content-Length',[])
+        if len(content_lengths)>1:
+            self.close_connection=True
+            return self.send_json({'error':'İstek gövdesi uzunluğu geçersiz'},400)
+        raw_length=content_lengths[0] if content_lengths else None
+        if raw_length is None:
+            self.close_connection=True
+            length=0
+        else:
+            if not re.fullmatch(r'[0-9]+',raw_length):
+                self.close_connection=True
+                return self.send_json({'error':'İstek gövdesi uzunluğu geçersiz'},400)
+            try: length=int(raw_length)
+            except ValueError:
+                self.close_connection=True
+                return self.send_json({'error':'İstek gövdesi uzunluğu geçersiz'},400)
+        if length<0:
+            self.close_connection=True
+            return self.send_json({'error':'İstek gövdesi uzunluğu geçersiz'},400)
+        if length>MAX_REQUEST_BODY_BYTES:
+            self.close_connection=True
+            return self.send_json({'error':'İstek gövdesi çok büyük'},413)
+        self._request_body=self.rfile.read(length)
+        if len(self._request_body)!=length:
+            self.close_connection=True
+            return self.send_json({'error':'İstek gövdesi eksik'},400)
         if path == '/api/login':
-            data=self.body()
+            try: data=self.body()
+            except (json.JSONDecodeError,UnicodeDecodeError): return self.send_json({'error':'Giriş bilgileri geçersiz'},400)
             if not isinstance(data,dict): return self.send_json({'error':'Giriş bilgileri geçersiz'},400)
             username_value=data.get('username',''); username=username_value.strip() if isinstance(username_value,str) else ''
-            client_ip=self.client_ip(); attempt_key=(client_ip,username.casefold()); current=now()
-            with LOGIN_LOCK:
-                for key,value in list(LOGIN_ATTEMPTS.items()):
-                    if value.get('locked_until',0)<=current and current-value.get('first',current)>600: LOGIN_ATTEMPTS.pop(key,None)
-                attempt=LOGIN_ATTEMPTS.get(attempt_key,{'count':0,'first':current,'locked_until':0})
-                if attempt.get('locked_until',0)>current: return self.send_json({'error':'Çok fazla başarısız giriş. Lütfen daha sonra tekrar deneyin.'},429)
-                if current-attempt.get('first',current)>600: attempt={'count':0,'first':current,'locked_until':0}
-            conn=self.open_db(); row=conn.execute('SELECT * FROM tenants WHERE username=? AND status="active"',(username,)).fetchone()
-            if not row or not check_password(data.get('password',''),row['password_hash']):
+            password=data.get('password','')
+            if len(username)>254 or not isinstance(password,str) or len(password)>1024:
+                return self.send_json({'error':'Giriş bilgileri geçersiz'},400)
+            client_ip=self.client_ip(); attempt_key=(client_ip,username.casefold()); stripe=LOGIN_STRIPES[hash(attempt_key)%len(LOGIN_STRIPES)]
+            with stripe:
+                current=now()
                 with LOGIN_LOCK:
-                    attempt['count']=attempt.get('count',0)+1; attempt['first']=attempt.get('first',current); attempt['locked_until']=current+900 if attempt['count']>=5 else 0; LOGIN_ATTEMPTS[attempt_key]=attempt
-                return self.send_json({'error':'Kullanıcı adı veya parola hatalı'},401)
-            with LOGIN_LOCK: LOGIN_ATTEMPTS.pop(attempt_key,None)
-            token=secrets.token_urlsafe(32); SESSIONS[token]={'tenant_id':row['id'],'role':row['role'],'expires':now()+SESSION_TTL}
-            self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Set-Cookie',f'oim_session={token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age={SESSION_TTL}'); self.end_headers(); self.wfile.write(json.dumps({'user':public_tenant(row)},ensure_ascii=False).encode()); return
+                    global LOGIN_LAST_PRUNE
+                    if current-LOGIN_LAST_PRUNE>=60:
+                        for key,value in list(LOGIN_ATTEMPTS.items()):
+                            if value.get('locked_until',0)<=current and current-value.get('first',current)>600: LOGIN_ATTEMPTS.pop(key,None)
+                        LOGIN_LAST_PRUNE=current
+                    attempt=LOGIN_ATTEMPTS.get(attempt_key)
+                    if attempt and attempt.get('locked_until',0)>current: return self.send_json({'error':'Çok fazla başarısız giriş. Lütfen daha sonra tekrar deneyin.'},429)
+                    if attempt and current-attempt.get('first',current)>600:
+                        LOGIN_ATTEMPTS.pop(attempt_key,None); attempt=None
+                    track_attempt=True
+                    if attempt is None and len(LOGIN_ATTEMPTS)>=LOGIN_MAX_ENTRIES:
+                        # Preserve successful logins when the bounded failure cache is saturated.
+                        track_attempt=False
+                conn=self.open_db(); row=conn.execute('SELECT * FROM tenants WHERE username=? AND status="active"',(username,)).fetchone()
+                if not row or not check_password(password,row['password_hash']):
+                    if track_attempt:
+                        with LOGIN_LOCK:
+                            attempt=LOGIN_ATTEMPTS.get(attempt_key)
+                            if attempt is not None or len(LOGIN_ATTEMPTS)<LOGIN_MAX_ENTRIES:
+                                attempt=attempt or {'count':0,'first':current,'locked_until':0}
+                                attempt['count']=attempt.get('count',0)+1; attempt['first']=attempt.get('first',current); attempt['locked_until']=current+900 if attempt['count']>=5 else 0; LOGIN_ATTEMPTS[attempt_key]=attempt
+                    return self.send_json({'error':'Kullanıcı adı veya parola hatalı'},401)
+                with LOGIN_LOCK:
+                    LOGIN_ATTEMPTS.pop(attempt_key,None)
+                token=secrets.token_urlsafe(32); SESSIONS[token]={'tenant_id':row['id'],'role':row['role'],'expires':now()+SESSION_TTL}
+                self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Set-Cookie',f'oim_session={token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age={SESSION_TTL}'); self.end_headers(); self.wfile.write(json.dumps({'user':public_tenant(row)},ensure_ascii=False).encode()); return
         if path == '/api/logout':
             cookie=self.headers.get('Cookie',''); token=next((x.split('=',1)[1] for x in cookie.split('; ') if x.startswith('oim_session=')),None)
             if token: SESSIONS.pop(token,None)
@@ -1042,7 +1156,7 @@ class Handler(BaseHTTPRequestHandler):
                 if value.get('tenant_id')==current.get('tenant_id'): SESSIONS.pop(key,None)
             body=json.dumps({'ok':True,'message':'Tüm oturumlar kapatıldı'}).encode(); self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Set-Cookie','oim_session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body); return
         if path == '/api/openai/webhook':
-            raw=self.rfile.read(int(self.headers.get('Content-Length','0')))
+            raw=self._request_body
             webhook_id=self.headers.get('webhook-id',''); ts=self.headers.get('webhook-timestamp',''); sigs=self.headers.get('webhook-signature',''); secret=os.environ.get('OPENAI_WEBHOOK_SECRET','')
             valid=False
             try:
@@ -1052,20 +1166,102 @@ class Handler(BaseHTTPRequestHandler):
                 valid=bool(secret and webhook_id and ts and fresh and any(hmac.compare_digest(s.split(',',1)[1],expected) for s in sigs.split(' ') if s.startswith('v1,')))
             except Exception: valid=False
             if not secret or not valid: return self.send_json({'error':'Geçersiz veya yapılandırılmamış webhook imzası'},401)
-            data=json.loads(raw or '{}'); event_type=data.get('type',''); payload=data.get('data') or data
+            try: data=json.loads(raw or b'{}')
+            except (json.JSONDecodeError,UnicodeDecodeError): return self.send_json({'error':'Webhook gövdesi geçersiz'},400)
+            if not isinstance(data,dict): return self.send_json({'error':'Webhook gövdesi geçersiz'},400)
+            event_type=data.get('type',''); payload=data.get('data') or data
+            if not isinstance(payload,dict): return self.send_json({'error':'Webhook olayı geçersiz'},400)
             call_id=payload.get('call_id') or payload.get('session_id') or payload.get('id')
             if event_type == 'realtime.call.incoming' and call_id:
+                if len(webhook_id)>255: return self.send_json({'error':'Webhook kimliği geçersiz'},400)
+                call_id=str(call_id).strip()
+                if not call_id or len(call_id)>255: return self.send_json({'error':'Çağrı kimliği geçersiz'},400)
+                body_digest=hashlib.sha256(raw).hexdigest()
                 tenant_id=tenant_from_payload(payload)
                 if not tenant_id:
                     return self.send_json({'ok':True,'accepted':False,'reason':'tenant_unresolved'})
                 key,model=configured_openai()
-                conn=self.open_db(); tenant=conn.execute('SELECT name,credits,status FROM tenants WHERE id=?',(tenant_id,)).fetchone(); conn.execute('INSERT OR IGNORE INTO calls(tenant_id,call_id,status,started_at) VALUES(?,?,?,?)',(tenant_id,str(call_id),'incoming',now()));
+                conn=self.open_db(); conn.execute('BEGIN IMMEDIATE')
+                conn.execute('DELETE FROM webhook_receipts WHERE created_at<?',(now()-7*86400,))
+                claim_token=secrets.token_urlsafe(24)
+                receipt=conn.execute('SELECT body_sha256,status,updated_at FROM webhook_receipts WHERE webhook_id=?',(webhook_id,)).fetchone()
+                if receipt:
+                    if not hmac.compare_digest(receipt['body_sha256'],body_digest):
+                        conn.rollback(); conn.close()
+                        return self.send_json({'error':'Webhook kimliği farklı bir olay gövdesiyle kullanıldı'},409)
+                    if receipt['status']=='processing' and now()-receipt['updated_at']<=60:
+                        conn.commit(); conn.close()
+                        return self.send_json({'ok':False,'accepted':False,'retry':True},503)
+                    if receipt['status']=='processing':
+                        conn.execute('UPDATE webhook_receipts SET claim_token=?,updated_at=? WHERE webhook_id=?',(claim_token,now(),webhook_id))
+                    elif receipt['status']=='failed':
+                        conn.execute('UPDATE webhook_receipts SET status="processing",claim_token=?,updated_at=? WHERE webhook_id=?',(claim_token,now(),webhook_id))
+                    else:
+                        conn.commit(); conn.close()
+                        if receipt['status']=='accepted':
+                            return self.send_json({'ok':True,'accepted':True,'duplicate':True})
+                        return self.send_json({'ok':True,'accepted':False,'reason':'call_failed','duplicate':True})
+                else:
+                    conn.execute('INSERT INTO webhook_receipts(webhook_id,body_sha256,call_id,status,claim_token,created_at,updated_at) VALUES(?,?,?,"processing",?,?,?)',(webhook_id,body_digest,call_id,claim_token,now(),now()))
+                pending=conn.execute('SELECT webhook_id,updated_at FROM webhook_receipts WHERE call_id=? AND webhook_id<>? AND status="processing"',(call_id,webhook_id)).fetchall()
+                current_time=now()
+                for active_claim in pending:
+                    if current_time-active_claim['updated_at']<=60:
+                        conn.execute('UPDATE webhook_receipts SET status="failed",claim_token="",updated_at=? WHERE webhook_id=?',(current_time,webhook_id)); conn.commit(); conn.close()
+                        return self.send_json({'ok':False,'accepted':False,'retry':True},503)
+                    conn.execute('UPDATE webhook_receipts SET status="failed",claim_token="",updated_at=? WHERE webhook_id=? AND status="processing"',(current_time,active_claim['webhook_id']))
+                existing=conn.execute('SELECT tenant_id,status,failure_code,billed_at,started_at FROM calls WHERE call_id=?',(call_id,)).fetchone()
+                retrying=False
+                retry_sideband=False
+                if existing:
+                    if existing['tenant_id']!=tenant_id:
+                        conn.execute('UPDATE webhook_receipts SET status="rejected",claim_token="",updated_at=? WHERE webhook_id=?',(now(),webhook_id)); conn.commit(); conn.close()
+                        return self.send_json({'ok':True,'accepted':False,'reason':'call_tenant_mismatch'})
+                    if existing['status']=='incoming':
+                        if now()-existing['started_at']>60:
+                            retrying=True
+                        else:
+                            conn.execute('UPDATE webhook_receipts SET status="failed",claim_token="",updated_at=? WHERE webhook_id=?',(now(),webhook_id)); conn.commit(); conn.close()
+                            return self.send_json({'ok':False,'accepted':False,'retry':True},503)
+                    elif existing['status'] in ('active','ended'):
+                        conn.execute('UPDATE webhook_receipts SET status="accepted",claim_token="",updated_at=? WHERE webhook_id=?',(now(),webhook_id)); conn.commit(); conn.close()
+                        return self.send_json({'ok':True,'accepted':True,'duplicate':True})
+                    elif existing['status']=='rejected_no_credit':
+                        conn.execute('UPDATE webhook_receipts SET status="rejected",claim_token="",updated_at=? WHERE webhook_id=?',(now(),webhook_id)); conn.commit(); conn.close()
+                        return self.send_json({'ok':True,'accepted':False,'reason':'insufficient_credits','duplicate':True})
+                    elif existing['status']=='failed' and existing['failure_code']=='accept_failed' and not existing['billed_at']:
+                        retrying=True
+                    elif existing['status']=='failed' and existing['failure_code']=='sideband_failed' and not existing['billed_at']:
+                        retry_sideband=True
+                    else:
+                        conn.execute('UPDATE webhook_receipts SET status="failed",claim_token="",updated_at=? WHERE webhook_id=?',(now(),webhook_id)); conn.commit(); conn.close()
+                        return self.send_json({'ok':True,'accepted':False,'reason':'call_failed','duplicate':True})
+                tenant=conn.execute('SELECT id,name,credits,status,role FROM tenants WHERE id=?',(tenant_id,)).fetchone()
+                if not tenant or tenant['role']!='customer':
+                    conn.execute('UPDATE webhook_receipts SET status="rejected",claim_token="",updated_at=? WHERE webhook_id=?',(now(),webhook_id)); conn.commit(); conn.close()
+                    return self.send_json({'ok':True,'accepted':False,'reason':'tenant_unavailable'})
                 pricing=conn.execute('SELECT credits_per_minute,ai_multiplier,minimum_credit FROM billing_settings WHERE id=1').fetchone()
                 minimum_credit=max(0.01,float(pricing['minimum_credit'] if pricing else 10))
-                if not tenant or tenant['status']!='active' or float(tenant['credits']) < minimum_credit:
-                    conn.execute('UPDATE calls SET status="rejected_no_credit",ended_at=?,billed_at=? WHERE call_id=?',(now(),now(),str(call_id))); conn.commit(); conn.close()
+                if tenant['status']!='active' or float(tenant['credits']) < minimum_credit:
+                    rejected_at=now()
+                    if retrying or retry_sideband:
+                        conn.execute('UPDATE calls SET status="rejected_no_credit",started_at=?,ended_at=?,billed_at=?,failure_code="",failure_message="" WHERE call_id=?',(rejected_at,rejected_at,rejected_at,call_id))
+                    else:
+                        conn.execute('INSERT INTO calls(tenant_id,call_id,status,started_at,ended_at,billed_at) VALUES(?,?,?,?,?,?)',(tenant_id,call_id,'rejected_no_credit',rejected_at,rejected_at,rejected_at))
+                    conn.execute('UPDATE webhook_receipts SET status="rejected",claim_token="",updated_at=? WHERE webhook_id=?',(rejected_at,webhook_id)); conn.commit(); conn.close()
                     return self.send_json({'ok':True,'accepted':False,'reason':'insufficient_credits'})
+                if retrying or retry_sideband:
+                    conn.execute('UPDATE calls SET status="incoming",started_at=?,ended_at=NULL,failure_code="",failure_message="" WHERE call_id=?',(now(),call_id))
+                else:
+                    conn.execute('INSERT INTO calls(tenant_id,call_id,status,started_at) VALUES(?,?,?,?)',(tenant_id,call_id,'incoming',now()))
                 conn.commit(); conn.close()
+                def renew_webhook_claim():
+                    claim_conn=self.open_db()
+                    try:
+                        cursor=claim_conn.execute('UPDATE webhook_receipts SET updated_at=? WHERE webhook_id=? AND status="processing" AND claim_token=?',(now(),webhook_id,claim_token))
+                        claim_conn.commit()
+                        return cursor.rowcount==1
+                    finally: claim_conn.close()
                 business_name=tenant['name'] if tenant else 'müşteri işletmesi'
                 settings_conn=self.open_db(); ai_settings=settings_conn.execute('SELECT greeting,voice,working_hours FROM tenant_ai_settings WHERE tenant_id=?',(tenant_id,)).fetchone(); settings_conn.close(); greeting=(ai_settings['greeting'] if ai_settings else '').strip(); voice=(ai_settings['voice'] if ai_settings else 'alloy') or 'alloy'; working_hours=(ai_settings['working_hours'] if ai_settings else '').strip()
                 knowledge=knowledge_context(tenant_id)
@@ -1094,17 +1290,34 @@ Appointment policy:
                     {'type':'function','name':'request_human_callback','description':'Sorun çözülemediğinde veya müşteri insanla görüşmek istediğinde, onay aldığı telefon numarası ve kısa nedeni ile geri arama isteği kaydet. Canlı çağrıyı başka bir hatta aktardığını söyleme.','parameters':{'type':'object','properties':{'phone':{'type':'string','description':'Müşterinin geri aranmak için onayladığı telefon numarası'},'reason':{'type':'string','description':'Geri arama için kısa neden'}},'required':['phone'],'additionalProperties':False}}
                 ]
                 body=json.dumps({'type':'realtime','model':model,'output_modalities':['audio'],'instructions':instructions,'tools':tools,'tool_choice':'auto','tracing':'auto'}).encode()
+                if not renew_webhook_claim(): return self.send_json({'ok':False,'accepted':False,'retry':True},503)
+                if not retry_sideband:
+                    try:
+                        provider_call_id=urllib.parse.quote(call_id,safe='')
+                        req=urllib.request.Request('https://api.openai.com/v1/realtime/calls/'+provider_call_id+'/accept',data=body,headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST'); urllib.request.urlopen(req,timeout=15)
+                    except Exception:
+                        if renew_webhook_claim():
+                            record_call_failure(call_id,'accept_failed',bill=False)
+                            receipt_conn=self.open_db(); receipt_conn.execute('UPDATE webhook_receipts SET status="failed",claim_token="",updated_at=? WHERE webhook_id=? AND claim_token=?',(now(),webhook_id,claim_token)); receipt_conn.commit(); receipt_conn.close()
+                        return self.send_json({'ok':False,'accepted':False},502)
+                if not renew_webhook_claim(): return self.send_json({'ok':False,'accepted':False,'retry':True},503)
                 try:
-                    req=urllib.request.Request('https://api.openai.com/v1/realtime/calls/'+str(call_id)+'/accept',data=body,headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST'); urllib.request.urlopen(req,timeout=15)
-                    save_call_event(str(call_id),'active'); start_realtime_sideband(str(call_id),tenant_id)
-                    return self.send_json({'ok':True,'accepted':True})
-                except Exception as exc:
-                    record_call_failure(str(call_id),'accept_failed',bill=False)
+                    save_call_event(call_id,'active'); start_realtime_sideband(call_id,tenant_id)
+                except Exception:
+                    if renew_webhook_claim():
+                        record_call_failure(call_id,'sideband_failed',bill=False)
+                        receipt_conn=self.open_db(); receipt_conn.execute('UPDATE webhook_receipts SET status="failed",claim_token="",updated_at=? WHERE webhook_id=? AND claim_token=?',(now(),webhook_id,claim_token)); receipt_conn.commit(); receipt_conn.close()
                     return self.send_json({'ok':False,'accepted':False},502)
+                receipt_conn=self.open_db(); receipt_cursor=receipt_conn.execute('UPDATE webhook_receipts SET status="accepted",claim_token="",updated_at=? WHERE webhook_id=? AND status="processing" AND claim_token=?',(now(),webhook_id,claim_token)); receipt_conn.commit(); receipt_conn.close()
+                if not receipt_cursor.rowcount: return self.send_json({'ok':False,'accepted':False,'retry':True},503)
+                return self.send_json({'ok':True,'accepted':True})
             return self.send_json({'ok':True,'ignored':True})
         s=self.require()
         if not s: return
-        conn=self.open_db(); data=self.body()
+        conn=self.open_db()
+        try: data=self.body()
+        except (json.JSONDecodeError,UnicodeDecodeError): return self.send_json({'error':'İstek gövdesi geçersiz'},400)
+        if not isinstance(data,dict): return self.send_json({'error':'İstek gövdesi geçersiz'},400)
         if path == '/api/contact-requests':
             if s['role']!='customer': return self.send_json({'error':'Yetki yok'},403)
             message=data.get('message',''); phone=data.get('contact_phone','')
