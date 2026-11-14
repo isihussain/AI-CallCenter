@@ -366,7 +366,9 @@ async def realtime_sideband(call_id, tenant_id, startup=None):
         async with websockets.connect(uri,extra_headers=headers,ping_interval=20,ping_timeout=20,open_timeout=10) as ws:
             connected=True
             session_model='gpt-realtime'
-            opening_sent=False
+            await asyncio.wait_for(ws.send(json.dumps(opening_response(tenant_id),ensure_ascii=False)),timeout=5)
+            if startup: startup['ready'].set()
+            print('Realtime opening requested for',call_id,flush=True)
             async for raw in ws:
                 if startup and startup['cancelled'].is_set():
                     startup_failed=True
@@ -374,11 +376,6 @@ async def realtime_sideband(call_id, tenant_id, startup=None):
                 event=json.loads(raw); event_type=event.get('type','')
                 if event_type == 'session.created':
                     session_model=((event.get('session') or {}).get('model') or session_model)
-                    if not opening_sent:
-                        await asyncio.wait_for(ws.send(json.dumps(opening_response(tenant_id),ensure_ascii=False)),timeout=5)
-                        opening_sent=True
-                        if startup: startup['ready'].set()
-                        print('Realtime opening requested for',call_id,flush=True)
                 if event_type == 'response.created' and ((event.get('response') or {}).get('metadata') or {}).get('purpose') == 'opening_greeting':
                     print('Realtime opening started for',call_id,flush=True)
                 if event_type == 'error':
