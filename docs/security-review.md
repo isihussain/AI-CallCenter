@@ -17,7 +17,7 @@
 - Regression coverage was added for concurrent login failures and cache saturation, oversized request bodies, recording filename routing and identifier bounds, symbolic links, duplicate webhooks, sideband retries, and call tenant ownership.
 - Dashboard coverage was added for formula-safe CSV cell encoding.
 - The application test suite was not run on the local host. The Codex Security scan worker could not start because this session did not provide its required managed filesystem profile. GitHub Actions runs the regression suite and CodeQL on the pull request; their results should be reviewed before merging.
-- The repository now includes CodeQL, dependency review, and weekly Dependabot configuration.
+- The repository includes CodeQL and weekly Dependabot configuration. GitHub reported that dependency review is unavailable because the repository dependency graph is disabled; the dependency review workflow was removed from this change. GitHub's [dependency graph setup](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/enable-dependency-graph) requires enabling it in repository settings.
 
 ## Limits
 

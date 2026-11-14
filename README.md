@@ -46,7 +46,7 @@ On narrow screens, the system flow offers a readable node list and keeps the sel
 - **Optional integrations:** customer-specific Telegram call-recording delivery with explicit tenant-prefixed filenames, Google Calendar OAuth, configurable provider keys, and SMTP settings.
 - **Web dashboard:** responsive customer and administrator views, a mobile section selector, and persistent Turkish, English, and Russian interface preferences.
 - **Container installation:** a same-origin HTTPS frontend and an unprivileged API, with persistent database and encryption-key storage.
-- **Automated checks:** Python API and tenant-isolation tests, dashboard tests, a disposable HTTPS Compose smoke check, CodeQL analysis, dependency review, and Dependabot updates.
+- **Automated checks:** Python API and tenant-isolation tests, dashboard tests, a disposable HTTPS Compose smoke check, CodeQL analysis, and Dependabot updates.
 
 The telephone path depends on your SIP provider and PBX. This repository does not include production SIP credentials, carrier configuration, server logs, customer exports, or a ready-made root-level PBX provisioning program.
 
@@ -220,7 +220,7 @@ python scripts/smoke_compose.py
 
 The smoke check creates its own disposable stack, signs in with synthetic credentials, verifies routing and the API's unprivileged user, then recreates containers to check database and encryption-key persistence. It removes only its own stack and volumes. No test needs provider keys, a PBX, or real calls.
 
-[GitHub Actions](.github/workflows/tests.yml) runs on pull requests and pushes to main. Stable jobs are **Regression (Python 3.11)**, **Regression (Python 3.13)**, and **Compose HTTPS smoke**. Regression jobs also run the dashboard checks on Node.js 22; all jobs run without repository secrets. [CodeQL](.github/workflows/codeql.yml) analyzes Python and JavaScript on pull requests, pushes to main, and a weekly schedule. [Dependency review](.github/workflows/dependency-review.yml) checks pull-request dependency changes, and [Dependabot](.github/dependabot.yml) checks Python, pnpm, Docker, and GitHub Actions dependencies weekly.
+[GitHub Actions](.github/workflows/tests.yml) runs on pull requests and pushes to main. Stable jobs are **Regression (Python 3.11)**, **Regression (Python 3.13)**, and **Compose HTTPS smoke**. Regression jobs also run the dashboard checks on Node.js 22; all jobs run without repository secrets. [CodeQL](.github/workflows/codeql.yml) analyzes Python and JavaScript on pull requests, pushes to main, and a weekly schedule. [Dependabot](.github/dependabot.yml) checks Python, pnpm, Docker, and GitHub Actions dependencies weekly. GitHub dependency review requires the repository dependency graph to be enabled; see the [security review](docs/security-review.md).
 
 ## Operations and data protection
 
@@ -258,7 +258,6 @@ Dockerfile / Dockerfile.web         API and frontend images
 compose.yaml                       Persistent same-origin HTTPS stack
 .github/workflows/tests.yml         Python, dashboard, and container checks
 .github/workflows/codeql.yml        Python and JavaScript code scanning
-.github/workflows/dependency-review.yml  Pull-request dependency review
 .github/dependabot.yml              Weekly dependency updates
 docs/security-review.md             Security review scope and results
 .env.example                       Safe configuration template with blank secrets
