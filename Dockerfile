@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.15-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     OIM_HOST=0.0.0.0 OIM_PORT=8787 OIM_DB=/data/oim.db \
     OIM_SECRET=/data/.secret OIM_RECORDINGS=/recordings
