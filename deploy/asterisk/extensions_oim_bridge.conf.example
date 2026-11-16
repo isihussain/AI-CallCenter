@@ -1,0 +1,14 @@
+; Add this context to /etc/asterisk/extensions_custom.conf.
+; Create a FreePBX Custom Destination for oim-elevenlabs-bridge,s,1,
+; then select that destination only for the inbound DID you intend to migrate.
+
+[oim-elevenlabs-bridge]
+exten => s,1,NoOp(OIM ElevenLabs Scribe call bridge)
+ same => n,Set(OIM_CALLED_NUMBER=${FROM_DID})
+ same => n,AGI(oim-register-call.py,${OIM_CALLED_NUMBER},${CALLERID(num)})
+ same => n,GotoIf($["${OIM_BRIDGE_ERROR}" = "1"]?bridge-failed)
+ same => n,Answer()
+ same => n,AudioSocket(${OIM_BRIDGE_UUID},127.0.0.1:9019)
+ same => n,Hangup()
+ same => n(bridge-failed),Playback(ss-noservice)
+ same => n,Hangup()

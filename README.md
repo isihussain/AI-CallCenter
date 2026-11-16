@@ -134,7 +134,7 @@ The following is a deployment outline for a new Ubuntu or Debian host. Adjust ac
    sudo systemctl status ai-call-center
    ```
 
-9. Sign in and configure provider keys from **API connections** in the administrator panel. OpenAI Realtime handles phone calls; OpenAI AI handles text previews. ElevenLabs requires a Voice ID. Deepgram's default Turkish speech-preview model is `flux-dilek-tr`. Select **Check connection** to validate each saved key, then use **Try & listen** to generate a speech preview.
+9. Sign in and configure provider keys from **API connections** in the administrator panel. OpenAI Realtime remains the direct SIP route and fallback. The optional Asterisk bridge uses ElevenLabs Scribe v3 Live for Turkish, Russian, and English recognition, OpenAI AI for text replies and existing tools, and ElevenLabs for phone speech. Deepgram remains available for speech previews. Follow [the Asterisk bridge setup](docs/elevenlabs-asterisk-bridge.md) before routing a DID to it.
 
 The sample systemd unit applies basic service hardening. Review its `ReadWritePaths` if you use different data or recording locations. Do not expose the backend port directly to the internet; serve it behind the TLS reverse proxy.
 
@@ -149,6 +149,10 @@ The sample systemd unit applies basic service hardening. Review its `ReadWritePa
 | `OIM_RECORDINGS` | Directory watched for recordings to deliver through Telegram. | `/var/spool/asterisk/monitor/ai-call-center` |
 | `OIM_PUBLIC_URL` | Public HTTPS origin used to construct Google OAuth callback and return URLs. | `https://voice.example.org` |
 | `OIM_CREDITS_PER_MINUTE` | Initial default credit rate inserted for a new database. The administrator can change billing values in the dashboard. | `0.1` |
+| `OIM_AUDIOSOCKET_ENABLED` | Starts the optional Asterisk AudioSocket listener for ElevenLabs Scribe calls. Leave disabled until FreePBX is configured. | `0` |
+| `OIM_AUDIOSOCKET_HOST` | AudioSocket bind address. Keep loopback when Asterisk and OIM share a host. | `127.0.0.1` |
+| `OIM_AUDIOSOCKET_PORT` | TCP port used by Asterisk AudioSocket. Restrict it to the PBX host. | `9019` |
+| `OIM_PBX_SHARED_SECRET` | Shared secret for the Asterisk AGI call-registration endpoint. Keep it in the service environment and protected AGI config only. | Set through a secret manager |
 | `OIM_BOOTSTRAP_ADMIN_USERNAME` | Username for the initial administrator, used only when creating an empty database. | `admin` |
 | `OIM_BOOTSTRAP_ADMIN_PASSWORD` | Optional first-run password. If blank, the application generates one and writes it to the protected credentials file. | Set through a secret manager |
 | `OPENAI_API_KEY` | Optional server-side fallback key for OpenAI Realtime. You can also configure a key in the administrator panel. | Never commit a real key |
@@ -168,6 +172,10 @@ Other integrations are configured in the dashboard: Telegram bot token and chat,
 
 The SIP settings endpoint invokes `/usr/bin/sudo /usr/local/sbin/oim-apply-sip` after saving credentials. That privileged helper is **not included** in this repository because PBX file paths, dial plan, carrier registration, and firewall rules are specific to each operator. Until you install and review your own root-owned helper and narrowly scoped sudoers rule, the SIP settings cannot be applied to Asterisk from the panel. Never permit the web service to run arbitrary commands as root.
 
+## ElevenLabs Scribe and Asterisk AudioSocket
+
+The optional OIM bridge routes raw Asterisk call audio to ElevenLabs Scribe v3 Live for Turkish, Russian, and English STT. OpenAI AI produces text replies and calls the same tenant-scoped knowledge, appointment, and callback tools. ElevenLabs TTS speaks replies in the configured Voice ID. OpenAI Realtime SIP remains available as the existing route and rollback option. Follow the [Asterisk bridge setup](docs/elevenlabs-asterisk-bridge.md) for the AGI script, shared-secret file, dialplan context, and FreePBX Custom Destination. The backend does not change inbound DID routes automatically.
+
 ## Dashboard languages and call reports
 
 Use the language selector on the login screen or dashboard to choose Turkish, English, or Russian. The preference stays in that browser. Switching language preserves saved business text and current edits to the greeting and knowledge forms. On narrow screens, use the section selector in the header. See [dashboard languages](docs/dashboard-languages.md) for details and translation maintenance.
@@ -178,7 +186,7 @@ The CSV report downloads all matching call pages. It stops if any page fails, ra
 
 ## Readiness, monitoring, reviews, and privacy
 
-Administrators also have an interactive **System flow** dashboard with aggregate call counters, selectable nodes, source/destination details, zoom controls, and a mobile list view. **API connections** provides separate encrypted settings for OpenAI Realtime, OpenAI AI, ElevenLabs, and Deepgram, plus explicit text and speech previews. The current phone route uses OpenAI SIP; ElevenLabs or Deepgram phone audio requires a separate media bridge or provider SIP route. See [admin connections and system flow](docs/admin-console.md) for setup, limits, and endpoint details.
+Administrators also have an interactive **System flow** dashboard with aggregate call counters, selectable nodes, source/destination details, zoom controls, and a mobile list view. **API connections** provides separate encrypted settings for OpenAI Realtime, OpenAI AI, ElevenLabs, and Deepgram, plus explicit text and speech previews. The connections panel reports whether the OIM AudioSocket listener and required provider credentials are ready; it cannot verify the FreePBX DID destination. See [admin connections and system flow](docs/admin-console.md) and [ElevenLabs Scribe bridge setup](docs/elevenlabs-asterisk-bridge.md) for details.
 
 The dashboard includes a tenant-scoped setup readiness panel, a greeting preview, active and failed call monitoring, a callback queue, editable call reviews, and usage reports. The greeting preview uses the saved text and optional browser speech; it does not place a telephone test call or verify an operator PBX route. Human follow-up is recorded as a callback request, not a live transfer. Quality indicators use a documented deterministic rubric and show which signals were available.
 

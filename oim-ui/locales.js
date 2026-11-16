@@ -2092,11 +2092,31 @@
     ],
     ["AI → Ses denemesi", "AI → Voice preview", "AI → Проба голоса"],
     ["Sağlayıcı", "Provider", "Провайдер"],
-    ["Panelde Türkçe Flux ses denemesi.", "Turkish Flux voice previews in the panel.", "Проба турецкого голоса Flux в панели."],
-    ["Deepgram ses modeli gerekli.", "A Deepgram speech model is required.", "Укажите речевую модель Deepgram."],
-    ["Deepgram ses denemesi için flux- veya aura- TTS modeli seçin.", "Select a Deepgram Flux or Aura TTS model for speech previews.", "Для пробы речи выберите модель Deepgram Flux или Aura TTS."],
-    ["TTS uyumlu Deepgram modeli gerekli.", "A Deepgram TTS model is required.", "Требуется модель Deepgram TTS."],
-    ["Ses denemesi için ElevenLabs veya Deepgram seçin.", "Select ElevenLabs or Deepgram for speech previews.", "Выберите ElevenLabs или Deepgram для пробы голоса."],
+    [
+      "Panelde Türkçe Flux ses denemesi.",
+      "Turkish Flux voice previews in the panel.",
+      "Проба турецкого голоса Flux в панели.",
+    ],
+    [
+      "Deepgram ses modeli gerekli.",
+      "A Deepgram speech model is required.",
+      "Укажите речевую модель Deepgram.",
+    ],
+    [
+      "Deepgram ses denemesi için flux- veya aura- TTS modeli seçin.",
+      "Select a Deepgram Flux or Aura TTS model for speech previews.",
+      "Для пробы речи выберите модель Deepgram Flux или Aura TTS.",
+    ],
+    [
+      "TTS uyumlu Deepgram modeli gerekli.",
+      "A Deepgram TTS model is required.",
+      "Требуется модель Deepgram TTS.",
+    ],
+    [
+      "Ses denemesi için ElevenLabs veya Deepgram seçin.",
+      "Select ElevenLabs or Deepgram for speech previews.",
+      "Выберите ElevenLabs или Deepgram для пробы голоса.",
+    ],
     ["Deneme metni", "Test text", "Пробный текст"],
     ["AI yanıtı oluştur", "Generate AI response", "Создать ответ AI"],
     ["Metni seslendir", "Generate speech", "Озвучить текст"],
@@ -2126,9 +2146,24 @@
       "Генерация текста и проба ответов AI в панели.",
     ],
     [
+      "ElevenLabs telefon köprüsünde metin yanıt motoru ve panel denemeleri.",
+      "Text engine for the ElevenLabs phone bridge and panel previews.",
+      "Текстовый движок телефонного моста ElevenLabs и пробы в панели.",
+    ],
+    [
       "Panelde doğal ses üretimi ve dinleme.",
       "Natural speech generation and playback in the panel.",
       "Генерация и прослушивание естественной речи в панели.",
+    ],
+    [
+      "Telefon görüşmeleri için Scribe v3 STT (TR/RU/EN) ve doğal TTS sesi.",
+      "Scribe v3 phone STT (TR/RU/EN) and natural TTS voice.",
+      "Телефонное распознавание Scribe v3 (TR/RU/EN) и синтез речи.",
+    ],
+    [
+      "Panelde ses önizlemesi; canlı telefon STT yolu değildir.",
+      "Panel speech previews; not the live phone STT route.",
+      "Пробы речи в панели; не маршрут распознавания телефонных звонков.",
     ],
     ["TELEFON", "PHONE", "ТЕЛЕФОН"],
     ["ZEKA", "INTELLIGENCE", "ИНТЕЛЛЕКТ"],
@@ -2149,7 +2184,11 @@
       "The preview response or your text is spoken using the selected speech provider.",
       "Пробный ответ или введённый текст озвучивается выбранным поставщиком голоса.",
     ],
-    ["Deepgram Flux modeliyle panelde Türkçe ses önizlemesi üretir.", "Generates Turkish speech previews with Deepgram Flux in the panel.", "Создаёт пробы турецкой речи через Deepgram Flux в панели."],
+    [
+      "Deepgram Flux modeliyle panelde Türkçe ses önizlemesi üretir.",
+      "Generates Turkish speech previews with Deepgram Flux in the panel.",
+      "Создаёт пробы турецкой речи через Deepgram Flux в панели.",
+    ],
     ["Gelen çağrı", "Incoming call", "Входящий звонок"],
     [
       "Arayan kişi, operatör numarasından SIP hattına ulaşır. Operatör yönlendirmesi bu panelden doğrulanamaz.",
@@ -2162,9 +2201,34 @@
       "Текущий телефонный маршрут ведёт к SIP-подключению OpenAI Realtime.",
     ],
     [
+      "Mevcut OpenAI Realtime yönlendirmesi korunur. ElevenLabs için FreePBX DID yönünü OIM AudioSocket bağlamına ayrıca geçirmeniz gerekir.",
+      "The current OpenAI Realtime route stays in place. To use ElevenLabs, route the FreePBX DID to the OIM AudioSocket context.",
+      "Текущий маршрут OpenAI Realtime сохраняется. Для ElevenLabs направьте DID FreePBX в контекст OIM AudioSocket.",
+    ],
+    [
       "Canlı telefon görüşmesini yürütür; bilgi araması, randevu ve geri arama araçlarını çağırabilir.",
       "Handles phone conversations and can invoke knowledge search, appointment, and callback tools.",
       "Обрабатывает звонки и может вызывать поиск знаний, запись на приём и запрос обратного звонка.",
+    ],
+    [
+      "Mevcut doğrudan SIP yolu ve geri dönüş seçeneği. OIM köprüsü OpenAI AI metin yanıt motorunu kullanır.",
+      "Existing direct SIP route and fallback. The OIM bridge uses OpenAI AI for text responses.",
+      "Текущий прямой SIP-маршрут и резервный вариант. Мост OIM использует OpenAI AI для текстовых ответов.",
+    ],
+    [
+      "AudioSocket dinleyicisi hazır; telefon çağrılarının Scribe kullanması için FreePBX DID hedefini oim-elevenlabs-bridge,s,1 yapın. PBX yönlendirmesi bu panelden doğrulanmaz.",
+      "AudioSocket is ready. Set the FreePBX DID destination to oim-elevenlabs-bridge,s,1 for Scribe calls. This panel cannot verify PBX routing.",
+      "AudioSocket готов. Для Scribe задайте назначение DID FreePBX: oim-elevenlabs-bridge,s,1. Панель не проверяет маршрутизацию PBX.",
+    ],
+    [
+      "AudioSocket açık; ElevenLabs Scribe, Voice ID veya OpenAI yanıt ayarı hazır değil. API bağlantılarını ve sunucu ayarlarını kontrol edin.",
+      "AudioSocket is enabled, but ElevenLabs Scribe, Voice ID, or OpenAI response settings are not ready. Check the API connections and server settings.",
+      "AudioSocket включён, но Scribe, Voice ID или OpenAI не готовы. Проверьте API-подключения и настройки сервера.",
+    ],
+    [
+      "Mevcut telefon yolu OpenAI Realtime SIP. Scribe köprüsü kapalı; kurulum adımları README içindeki Asterisk köprü kılavuzunda.",
+      "The current phone route is OpenAI Realtime SIP. The Scribe bridge is off; see the Asterisk bridge guide in README.",
+      "Текущий телефонный маршрут — OpenAI Realtime SIP. Мост Scribe выключен; см. инструкцию Asterisk в README.",
     ],
     ["Ajan araçları", "Agent tools", "Инструменты агента"],
     [

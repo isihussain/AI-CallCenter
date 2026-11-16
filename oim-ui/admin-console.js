@@ -28,7 +28,7 @@
       id: "openai_ai",
       name: "OpenAI AI",
       icon: "brain",
-      note: "Panelde metin üretimi ve AI yanıt denemesi.",
+      note: "ElevenLabs telefon köprüsünde metin yanıt motoru ve panel denemeleri.",
       model: "",
       kind: "ZEKA",
     },
@@ -36,7 +36,7 @@
       id: "elevenlabs",
       name: "ElevenLabs",
       icon: "sliders",
-      note: "Panelde doğal ses üretimi ve dinleme.",
+      note: "Telefon görüşmeleri için Scribe v3 STT (TR/RU/EN) ve doğal TTS sesi.",
       model: "eleven_flash_v2_5",
       kind: "SES",
     },
@@ -44,7 +44,7 @@
       id: "deepgram",
       name: "Deepgram",
       icon: "wave-square",
-      note: "Panelde Türkçe Flux ses denemesi.",
+      note: "Panelde ses önizlemesi; canlı telefon STT yolu değildir.",
       model: "flux-dilek-tr",
       kind: "SES",
     },
@@ -104,7 +104,7 @@
       y: 280,
       name: "SIP / PBX",
       icon: "network-wired",
-      info: "Mevcut telefon hattı OpenAI Realtime SIP bağlantısına yönlenir.",
+      info: "Mevcut OpenAI Realtime yönlendirmesi korunur. ElevenLabs için FreePBX DID yönünü OIM AudioSocket bağlamına ayrıca geçirmeniz gerekir.",
       view: "sip",
     },
     {
@@ -113,7 +113,7 @@
       y: 280,
       name: "OpenAI Realtime",
       icon: "wave-square",
-      info: "Canlı telefon görüşmesini yürütür; bilgi araması, randevu ve geri arama araçlarını çağırabilir.",
+      info: "Mevcut doğrudan SIP yolu ve geri dönüş seçeneği. OIM köprüsü OpenAI AI metin yanıt motorunu kullanır.",
       view: "integrations",
     },
     {
@@ -391,6 +391,21 @@
       const data = await request("/api/admin/system-flow");
       if (ticket !== epoch || sequence !== flowSequence || !admin) return;
       snapshot = data;
+      const routeStatus = $("#phone-route-status");
+      if (routeStatus) {
+        const bridge = data.elevenlabs_bridge || {};
+        routeStatus.textContent = bridge.enabled
+          ? bridge.ready
+            ? t(
+                "AudioSocket dinleyicisi hazır; telefon çağrılarının Scribe kullanması için FreePBX DID hedefini oim-elevenlabs-bridge,s,1 yapın. PBX yönlendirmesi bu panelden doğrulanmaz.",
+              )
+            : t(
+                "AudioSocket açık; ElevenLabs Scribe, Voice ID veya OpenAI yanıt ayarı hazır değil. API bağlantılarını ve sunucu ayarlarını kontrol edin.",
+              )
+          : t(
+              "Mevcut telefon yolu OpenAI Realtime SIP. Scribe köprüsü kapalı; kurulum adımları README içindeki Asterisk köprü kılavuzunda.",
+            );
+      }
       renderFlow();
       $("#flow-stage").classList.remove("stale");
       $("#flow-status").textContent =
