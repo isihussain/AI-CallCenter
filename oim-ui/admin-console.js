@@ -40,6 +40,14 @@
       model: "eleven_flash_v2_5",
       kind: "SES",
     },
+    {
+      id: "deepgram",
+      name: "Deepgram",
+      icon: "wave-square",
+      note: "Panelde Türkçe Flux ses denemesi.",
+      model: "flux-dilek-tr",
+      kind: "SES",
+    },
   ];
   const nodes = [
     {
@@ -69,6 +77,16 @@
       icon: "sliders",
       provider: "elevenlabs",
       info: "Deneme yanıtı veya yazdığınız metin seçilen ElevenLabs sesiyle okunur.",
+      view: "integrations",
+    },
+    {
+      id: "deepgram",
+      x: 740,
+      y: 60,
+      name: "Deepgram",
+      icon: "wave-square",
+      provider: "deepgram",
+      info: "Deepgram Flux modeliyle panelde Türkçe ses önizlemesi üretir.",
       view: "integrations",
     },
     {
@@ -151,6 +169,7 @@
   const edges = [
     ["prompt", "openai_ai", "lab"],
     ["openai_ai", "elevenlabs", "lab"],
+    ["openai_ai", "deepgram", "lab"],
     ["phone", "sip", "phone"],
     ["sip", "realtime", "phone"],
     ["realtime", "tools", "phone"],
@@ -221,6 +240,8 @@
       if (!p.enabled) return t("Devre dışı");
       if (node.id === "elevenlabs" && !p.voice_id)
         return t("Ses kimliği bekliyor");
+      if (node.id === "deepgram" && !/^(flux-|aura-)/.test(p.model || ""))
+        return t("TTS uyumlu Deepgram modeli gerekli.");
       if (p.check_status === "error") return t("Son kontrol başarısız");
       return p.check_status === "ok"
         ? t("Bağlantı doğrulandı")
@@ -393,15 +414,6 @@
     const host = $("#provider-cards");
     host.replaceChildren();
     const definitions = [...profiles];
-    if (items.some((p) => p.provider === "deepgram"))
-      definitions.push({
-        id: "deepgram",
-        name: "Deepgram",
-        icon: "microphone",
-        note: "Kayıtlı yardımcı sağlayıcı ayarları.",
-        model: "",
-        kind: "EK BAĞLANTI",
-      });
     for (const profile of definitions) {
       const p = items.find((item) => item.provider === profile.id) || {},
         card = el("article", `provider-card provider-${profile.id}`);
@@ -601,7 +613,11 @@
         action === "ai"
           ? "/api/admin/ai-playground"
           : "/api/admin/providers/preview",
-        { provider: "elevenlabs", text },
+        {
+          provider:
+            action === "ai" ? "openai_ai" : $("#voice-preview-provider").value,
+          text,
+        },
       );
       if (ticket !== epoch || !admin) return;
       if (action === "ai") {

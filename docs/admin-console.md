@@ -7,23 +7,24 @@ Administrators can open **API connections** from the sidebar. Each connection ha
 | OpenAI Realtime | `openai` | The existing SIP phone agent, including audio and tool calls |
 | OpenAI AI | `openai_ai` | Explicit text previews through the Responses API |
 | ElevenLabs | `elevenlabs` | Explicit text-to-speech previews in the panel |
+| Deepgram | `deepgram` | API connection checks and Turkish Flux speech previews |
 
-Existing Realtime settings remain under `openai`. Adding an OpenAI AI key does not replace that record. Existing Deepgram settings, if present, remain editable as an auxiliary connection.
+Existing Realtime settings remain under `openai`. Adding an OpenAI AI key does not replace that record. Deepgram speech previews default to `flux-dilek-tr`; model names can be changed on the Deepgram card.
 
 ## Enter credentials
 
 1. Open the connection card and enter a model ID supported by your provider account.
-2. Enter the API key. For ElevenLabs, also enter the **Voice ID** from your voice library. The initial ElevenLabs model suggestion is `eleven_flash_v2_5`; you can replace it.
+2. Enter the API key. For ElevenLabs, also enter the **Voice ID** from your voice library. The initial ElevenLabs model suggestion is `eleven_flash_v2_5`; you can replace it. Deepgram uses its model field for speech synthesis: choose a `flux-` voice such as `flux-dilek-tr` for Turkish, or a supported `aura-` model. `nova-` models are speech-recognition models and cannot generate preview audio.
 3. Enable the connection and save it. Keys are encrypted in SQLite using the application's existing encryption key. Keys are never returned to the browser; status responses include only a configured flag and a fixed mask.
-4. Select **Check connection**. This checks a saved OpenAI model's accessibility or the ElevenLabs account endpoint. It does not place a call or synthesize speech. It does not prove that the carrier route, Realtime SIP permissions, Voice ID, or speech-generation quota works.
+4. Select **Check connection**. OpenAI checks the saved model, ElevenLabs checks the account endpoint, and Deepgram checks the projects endpoint. These checks do not place calls or synthesize speech. Use **Try & listen** to synthesize a short audio sample with the saved ElevenLabs voice or Deepgram model. Successful API checks do not prove that the carrier route or Realtime SIP permissions work.
 
-Leaving the key field blank preserves its saved value. **Remove saved key** explicitly clears it. Saving settings resets the previous check result. A server-level `OPENAI_API_KEY` can still supply the existing Realtime fallback when no enabled saved key is available; the flow uses the effective Realtime configuration and identifies that environment source in the connection card. OpenAI AI and ElevenLabs do not inherit that fallback.
+Leaving the key field blank preserves its saved value. **Remove saved key** explicitly clears it. Saving settings resets the previous check result. A server-level `OPENAI_API_KEY` can still supply the existing Realtime fallback when no enabled saved key is available; the flow uses the effective Realtime configuration and identifies that environment source in the connection card. OpenAI AI, ElevenLabs, and Deepgram do not inherit that fallback.
 
 No provider request occurs just from opening or refreshing a panel. The user enters credentials manually; installation does not create keys.
 
 ## Try text and voice
 
-In **Try & listen**, enter a prompt and select **Generate AI response**. The server uses the enabled OpenAI AI connection, with `store: false` and a 400-token output limit. The result is editable. You can also type a message directly into the response field and select **Generate speech** to preview the saved ElevenLabs model and voice.
+In **Try & listen**, enter a prompt and select **Generate AI response**. The server uses the enabled OpenAI AI connection, with `store: false` and a 400-token output limit. The result is editable. Select **ElevenLabs** or **Deepgram** as the speech provider, then select **Generate speech** to preview its saved model and voice.
 
 Text prompts accept up to 1,000 characters; speech previews accept up to 500. Generation may incur provider charges. Preview and connection-check requests share a limit of six attempts per administrator per minute. Audio is returned to the browser for playback and is not saved as a recording by this application. The panel clears its temporary audio URL when another preview starts or the page closes. Provider-side retention follows the provider account's settings.
 
@@ -31,7 +32,7 @@ The phone route currently terminates at OpenAI Realtime SIP. ElevenLabs previews
 
 ## Read the flow
 
-The dashboard and **System flow** view show the phone path, agent tools, call records, and the separate OpenAI AI → ElevenLabs preview chain. Select a node to see its sources, destinations, and a shortcut to the related panel.
+The dashboard and **System flow** view show the phone path, agent tools, call records, and separate OpenAI AI → ElevenLabs/Deepgram preview paths. Select a node to see its sources, destinations, and a shortcut to the related panel.
 
 Counters aggregate all customer accounts: active/incoming calls, calls started today in UTC, pending callbacks, and failed calls started in the last 24 hours. Configuration badges describe saved settings or the effective Realtime fallback; they are not live provider availability checks. External carrier/PBX routing is explicitly unverified. Animated dots illustrate direction, not individual packets or proof of an active connection.
 

@@ -507,10 +507,10 @@
             <div class="provider-lab">
               <div>
                 <p class="eyebrow">DENE VE DİNLE</p>
-                <h3>AI → ElevenLabs</h3>
+                <h3>AI → Ses denemesi</h3>
                 <p>
-                  Metin yazın, OpenAI AI yanıtını oluşturun ve ElevenLabs
-                  sesiyle dinleyin. Denemeler sağlayıcı kullanımına
+                  Metin yazın, OpenAI yanıtını oluşturun ve seçtiğiniz ses
+                  sağlayıcısıyla dinleyin. Denemeler sağlayıcı kullanımına
                   yansıyabilir.
                 </p>
               </div>
@@ -526,6 +526,12 @@ Merhaba, size nasıl yardımcı olabilirim?</textarea
                   >
                 </label>
                 <div class="lab-actions">
+                  <label class="preview-provider"
+                    >Sağlayıcı<select id="voice-preview-provider">
+                      <option value="elevenlabs">ElevenLabs</option>
+                      <option value="deepgram">Deepgram</option>
+                    </select></label
+                  >
                   <button class="button primary" type="submit">
                     AI yanıtı oluştur</button
                   ><button

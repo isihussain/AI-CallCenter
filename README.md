@@ -29,6 +29,7 @@ These screenshots use synthetic accounts and calls in a local demo. The dashboar
 - **Tenant accounts:** administrator and customer roles, password hashing, cookie sessions, per-customer records, and tenant-scoped API routes.
 - **Voice agent settings:** editable first greeting, voice selection, and working-hours text. New calls use the saved greeting.
 - **Realtime call handling:** OpenAI Realtime API integration, audio-first opening greeting, transcript capture, usage accounting, and call status updates.
+- **Provider previews:** separate encrypted settings and connection checks for OpenAI, ElevenLabs, and Deepgram, with ElevenLabs and Turkish Deepgram Flux speech previews in the administrator panel.
 - **Business knowledge:** publishable Markdown articles in Turkish, English, and Russian, with retrieval support for the voice agent.
 - **Appointments:** voice-agent booking flow, SQLite appointment records, and optional Google Calendar availability checks and event creation.
 - **Call history and reports:** server-side UTC date, status, and caller filters; stable pagination; summaries over all matching calls; CSV export across every matching page.
@@ -124,7 +125,7 @@ The following is a deployment outline for a new Ubuntu or Debian host. Adjust ac
 5. Copy [`deploy/nginx.conf.example`](deploy/nginx.conf.example) into your Nginx configuration, replace `your-domain.example` and certificate paths, and obtain a valid TLS certificate. The backend session cookie is marked `Secure`, so use HTTPS for browser logins.
 6. Create the Google OAuth web client if you enable Calendar. Add `https://YOUR_DOMAIN/api/google/callback` as an authorized redirect URI and set matching `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` values in the protected environment file.
 7. Set `OPENAI_API_KEY` and `OPENAI_WEBHOOK_SECRET` if you use the OpenAI Realtime voice flow. Configure the provider-side webhook to the HTTPS URL `/api/openai/webhook` and use the secret supplied by that provider.
-8. Start the service, check its status and health endpoint, then sign in and configure the provider in the administrator panel:
+8. Start the service and check its status and health endpoint:
 
    ```bash
    sudo systemctl daemon-reload
@@ -132,6 +133,8 @@ The following is a deployment outline for a new Ubuntu or Debian host. Adjust ac
    curl --fail http://127.0.0.1:8787/api/health
    sudo systemctl status ai-call-center
    ```
+
+9. Sign in and configure provider keys from **API connections** in the administrator panel. OpenAI Realtime handles phone calls; OpenAI AI handles text previews. ElevenLabs requires a Voice ID. Deepgram's default Turkish speech-preview model is `flux-dilek-tr`. Select **Check connection** to validate each saved key, then use **Try & listen** to generate a speech preview.
 
 The sample systemd unit applies basic service hardening. Review its `ReadWritePaths` if you use different data or recording locations. Do not expose the backend port directly to the internet; serve it behind the TLS reverse proxy.
 
@@ -175,7 +178,7 @@ The CSV report downloads all matching call pages. It stops if any page fails, ra
 
 ## Readiness, monitoring, reviews, and privacy
 
-Administrators also have an interactive **System flow** dashboard with aggregate call counters, selectable nodes, source/destination details, zoom controls, and a mobile list view. **API connections** provides separate encrypted settings for OpenAI Realtime, OpenAI AI, and ElevenLabs, plus explicit text and voice previews. The current phone route uses OpenAI SIP; ElevenLabs phone audio requires a separate media bridge. See [admin connections and system flow](docs/admin-console.md) for setup, limits, and endpoint details.
+Administrators also have an interactive **System flow** dashboard with aggregate call counters, selectable nodes, source/destination details, zoom controls, and a mobile list view. **API connections** provides separate encrypted settings for OpenAI Realtime, OpenAI AI, ElevenLabs, and Deepgram, plus explicit text and speech previews. The current phone route uses OpenAI SIP; ElevenLabs or Deepgram phone audio requires a separate media bridge or provider SIP route. See [admin connections and system flow](docs/admin-console.md) for setup, limits, and endpoint details.
 
 The dashboard includes a tenant-scoped setup readiness panel, a greeting preview, active and failed call monitoring, a callback queue, editable call reviews, and usage reports. The greeting preview uses the saved text and optional browser speech; it does not place a telephone test call or verify an operator PBX route. Human follow-up is recorded as a callback request, not a live transfer. Quality indicators use a documented deterministic rubric and show which signals were available.
 

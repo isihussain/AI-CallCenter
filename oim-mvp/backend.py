@@ -165,9 +165,15 @@ def provider_request(provider, key, model='', payload=None, voice_id=''):
     if provider == 'elevenlabs':
         url='https://api.elevenlabs.io/v1/text-to-speech/'+urllib.parse.quote(voice_id,safe='')+'?output_format=mp3_44100_128' if payload else 'https://api.elevenlabs.io/v1/user'
         headers={'xi-api-key':key,'Content-Type':'application/json','Accept':'audio/mpeg' if payload else 'application/json'}
+    elif provider == 'deepgram':
+        if payload:
+            endpoint='/v2/speak' if model.startswith('flux-') else '/v1/speak'
+            url='https://api.deepgram.com'+endpoint+'?'+urllib.parse.urlencode({'model':model,'encoding':'mp3'})
+        else: url='https://api.deepgram.com/v1/projects'
+        headers={'Authorization':'Token '+key,'Content-Type':'application/json','Accept':'audio/mpeg' if payload else 'application/json'}
     else:
-        url=('https://api.deepgram.com/v1/projects' if provider=='deepgram' else 'https://api.openai.com/v1/responses' if payload else 'https://api.openai.com/v1/models/'+urllib.parse.quote(model,safe=''))
-        headers={'Authorization':('Token ' if provider=='deepgram' else 'Bearer ')+key,'Content-Type':'application/json'}
+        url='https://api.openai.com/v1/responses' if payload else 'https://api.openai.com/v1/models/'+urllib.parse.quote(model,safe='')
+        headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'}
     req=urllib.request.Request(url,data=json.dumps(payload).encode() if payload else None,headers=headers)
     try:
         with urllib.request.urlopen(req,timeout=25) as response: body=response.read(3*1024*1024+1)
@@ -807,8 +813,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/admin/providers':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
             items={r['provider']:public_provider(r) for r in conn.execute('SELECT * FROM provider_settings ORDER BY provider')}
-            for name in ('openai','openai_ai','elevenlabs'):
-                items.setdefault(name,{'provider':name,'model':'gpt-realtime' if name=='openai' else '', 'enabled':False,'configured':False,'masked':'','voice_id':'','check_status':'unchecked','checked_at':None})
+            for name in ('openai','openai_ai','elevenlabs','deepgram'):
+                items.setdefault(name,{'provider':name,'model':'gpt-realtime' if name=='openai' else 'flux-dilek-tr' if name=='deepgram' else '', 'enabled':False,'configured':False,'masked':'','voice_id':'','check_status':'unchecked','checked_at':None})
             return self.send_json({'items':list(items.values())})
         if path == '/api/admin/system-flow':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
@@ -1004,7 +1010,7 @@ Appointment policy:
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
             provider='openai_ai' if path.endswith('ai-playground') else str(data.get('provider','')).strip().lower()
             if provider not in PROVIDER_IDS: return self.send_json({'error':'Geçersiz sağlayıcı'},400)
-            if path.endswith('/preview') and provider!='elevenlabs': return self.send_json({'error':'Ses denemesi için ElevenLabs seçin.'},400)
+            if path.endswith('/preview') and provider not in {'elevenlabs','deepgram'}: return self.send_json({'error':'Ses denemesi için ElevenLabs veya Deepgram seçin.'},400)
             row=conn.execute('SELECT * FROM provider_settings WHERE provider=?',(provider,)).fetchone()
             if not row: return self.send_json({'ok':False,'error':'Sağlayıcı tanımlı değil'},404)
             key=reveal(row['api_key'])
@@ -1021,6 +1027,10 @@ Appointment policy:
                 if provider=='elevenlabs':
                     if not row['voice_id']: return self.send_json({'error':'Ses kimliği gerekli.'},400)
                     payload={'text':text,'model_id':row['model'] or 'eleven_flash_v2_5'}
+                elif provider=='deepgram':
+                    if not row['model']: return self.send_json({'error':'Deepgram ses modeli gerekli.'},400)
+                    if not row['model'].startswith(('flux-','aura-')): return self.send_json({'error':'Deepgram ses denemesi için flux- veya aura- TTS modeli seçin.'},400)
+                    payload={'text':text}
                 else: payload={'model':row['model'],'input':text,'max_output_tokens':400,'store':False}
             with PROVIDER_LOCK:
                 recent=[x for x in PROVIDER_LIMITS.get(s['tenant_id'],[]) if x>now()-60]
@@ -1031,7 +1041,7 @@ Appointment policy:
                 if is_test:
                     conn.execute('UPDATE provider_settings SET check_status="ok",checked_at=? WHERE provider=?',(now(),provider)); conn.commit()
                     return self.send_json({'ok':True,'provider':provider,'message':'Bağlantı başarılı'})
-                if provider=='elevenlabs':
+                if provider in {'elevenlabs','deepgram'}:
                     if not body: raise ValueError('Sağlayıcı ses döndürmedi.')
                     return self.send_json({'ok':True,'audio':base64.b64encode(body).decode(),'content_type':'audio/mpeg'})
                 result=json.loads(body)

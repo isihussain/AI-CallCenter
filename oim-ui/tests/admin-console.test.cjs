@@ -7,14 +7,16 @@ const html = fs.readFileSync(path.join(UI, "index.html"), "utf8");
 function setup(role = "admin") {
   const writes = [],
     reads = [];
-  const providers = ["openai", "openai_ai", "elevenlabs"].map((provider) => ({
-    provider,
-    configured: true,
-    enabled: true,
-    model: "demo-model",
-    voice_id: "demo-voice",
-    check_status: "unchecked",
-  }));
+  const providers = ["openai", "openai_ai", "elevenlabs", "deepgram"].map(
+    (provider) => ({
+      provider,
+      configured: true,
+      enabled: true,
+      model: "demo-model",
+      voice_id: "demo-voice",
+      check_status: "unchecked",
+    }),
+  );
   const flow = {
     updated_at: 1793280000,
     providers,
@@ -57,14 +59,20 @@ test("admin flow has real counters, selectable nodes, list view, and independent
   const env = setup();
   await flush();
   await flush();
-  assert.equal(env.document.querySelectorAll("#provider-cards form").length, 3);
+  assert.equal(env.document.querySelectorAll("#provider-cards form").length, 4);
   assert.match(env.document.querySelector("#flow-metrics").textContent, /18/);
   const eleven = env.document.querySelector('[data-flow-node="elevenlabs"]');
   eleven.click();
   assert.equal(eleven.getAttribute("aria-pressed"), "true");
   assert.match(
     env.document.querySelector("#flow-inspector").textContent,
-    /selected ElevenLabs voice/,
+    /selected speech provider/,
+  );
+  assert.ok(env.document.querySelector('[data-flow-node="deepgram"]'));
+  assert.ok(
+    env.document.querySelector(
+      "#voice-preview-provider option[value=deepgram]",
+    ),
   );
   env.document.querySelector("#flow-toggle").click();
   assert.equal(env.document.querySelector("#flow-list").hidden, false);
@@ -94,6 +102,21 @@ test("saving one provider sends only its form and clears the typed secret after 
       .value,
     "demo-model",
   );
+});
+test("speech preview sends the selected Deepgram provider", async () => {
+  const env = setup();
+  await flush();
+  await flush();
+  const selector = env.document.querySelector("#voice-preview-provider");
+  selector.value = "deepgram";
+  env.document.querySelector("#ai-lab-output").value = "Merhaba";
+  env.document.querySelector("#eleven-preview").click();
+  await flush();
+  await flush();
+  assert.equal(env.writes.length, 1);
+  assert.equal(env.writes[0].url, "/api/admin/providers/preview");
+  assert.equal(env.writes[0].body.provider, "deepgram");
+  assert.equal(env.writes[0].body.text, "Merhaba");
 });
 test("customer sessions never fetch global flow or provider configuration", async () => {
   const env = setup("customer");

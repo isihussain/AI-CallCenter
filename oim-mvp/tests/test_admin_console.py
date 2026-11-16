@@ -77,6 +77,32 @@ class ProviderConsoleTests(ApiTestCase):
         self.save('elevenlabs',enabled=False)
         self.assertEqual(self.request('POST','/api/admin/providers/preview',{'provider':'elevenlabs','text':'hello'},tenant=1)[0],400)
 
+    def test_deepgram_is_listed_and_flux_voice_preview_uses_v2_speak(self):
+        items=self.get('/api/admin/providers',tenant=1)['items']
+        self.assertIn('deepgram',{item['provider'] for item in items})
+        self.save('deepgram',model='flux-dilek-tr')
+        with patch.object(backend.urllib.request,'urlopen',return_value=io.BytesIO(b'{"projects":[]}')) as upstream:
+            status,data,_=self.request('POST','/api/admin/providers/test',{'provider':'deepgram'},tenant=1)
+        self.assertEqual(status,200)
+        self.assertTrue(data['ok'])
+        check=upstream.call_args.args[0]
+        self.assertEqual(check.full_url,'https://api.deepgram.com/v1/projects')
+        self.assertEqual(check.get_header('Authorization'),'Token synthetic-private-key')
+        self.save('deepgram',model='nova-3')
+        status,data,_=self.request('POST','/api/admin/providers/preview',{'provider':'deepgram','text':'Merhaba'},tenant=1)
+        self.assertEqual(status,400)
+        self.assertIn('TTS modeli seçin',data['error'])
+        with patch.object(backend.urllib.request,'urlopen',return_value=io.BytesIO(b'ID3-synthetic-audio')) as upstream:
+            self.save('deepgram',model='flux-dilek-tr')
+            status,data,_=self.request('POST','/api/admin/providers/preview',{'provider':'deepgram','text':'Merhaba, size nasıl yardımcı olabilirim?'},tenant=1)
+        self.assertEqual(status,200)
+        self.assertEqual(data['content_type'],'audio/mpeg')
+        req=upstream.call_args.args[0]
+        self.assertEqual(req.full_url,'https://api.deepgram.com/v2/speak?model=flux-dilek-tr&encoding=mp3')
+        self.assertEqual(req.get_header('Authorization'),'Token synthetic-private-key')
+        self.assertEqual(json.loads(req.data),{'text':'Merhaba, size nasıl yardımcı olabilirim?'})
+        self.assertNotIn('synthetic-private-key',json.dumps(data))
+
     def test_openai_text_preview_is_explicit_and_not_stored(self):
         self.save('openai_ai',model='text-demo')
         body=json.dumps({'output':[{'type':'message','content':[{'type':'output_text','text':'Synthetic reply'}]}]}).encode()
