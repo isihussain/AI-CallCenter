@@ -182,6 +182,8 @@ function setView(view = "dashboard") {
       "view-hidden",
       view === "dashboard"
         ? !["agents", "calls", "system-flow"].includes(el.dataset.viewPanel)
+        : view.startsWith("vp-")
+          ? el.dataset.viewPanel !== "voice-platform"
         : el.dataset.viewPanel !== view,
     );
   });
@@ -223,10 +225,19 @@ function setView(view = "dashboard") {
     knowledge: "Bilgi Bankası",
     telegram: "Telegram",
     settings: "Ayarlar",
+    "vp-agents": "Voice Agents",
+    "vp-tools": "Tools",
+    "vp-calendar": "Calendar",
+    "vp-knowledge": "Knowledge Base",
+    "vp-conversations": "Conversations",
+    "vp-integrations": "ElevenLabs Integration",
+    "vp-analytics": "ElevenLabs Analytics",
+    "vp-settings": "Voice Platform Settings",
     help: "Yardım Merkezi",
   };
   const crumb = document.querySelector(".breadcrumb strong");
   if (crumb) crumb.textContent = labels[view] || "Genel Bakış";
+  window.dispatchEvent(new CustomEvent("oim:viewchange", { detail: { view } }));
   if (location.hash !== `#${view}`) history.replaceState(null, "", `#${view}`);
 }
 window.OIMSetView = setView;
@@ -432,6 +443,7 @@ async function loadOperationalData() {
   loadCustomerTelegram();
   loadContacts();
   loadGoogleCalendar();
+  loadMicrosoftCalendar();
   loadKnowledge();
 }
 
@@ -943,6 +955,35 @@ document
       status.textContent = err.message || "Google bağlantısı başlatılamadı";
     }
   });
+async function loadMicrosoftCalendar() {
+  const status = document.querySelector("#microsoft-status");
+  if (!status) return;
+  try {
+    const response = await fetch("/api/microsoft/status", { credentials: "same-origin" });
+    const data = await response.json();
+    if (!data.configured) {
+      status.textContent = OIMI18n.t("Microsoft OAuth yönetici tarafından henüz yapılandırılmadı.");
+      return;
+    }
+    status.textContent = data.connected
+      ? OIMI18n.t("Microsoft Outlook Calendar bağlı. Dolu saatler korunuyor.")
+      : OIMI18n.t("Microsoft Outlook Calendar bağlı değil.");
+  } catch (_) {
+    status.textContent = OIMI18n.t("Takvim durumu alınamadı.");
+  }
+}
+document.querySelector("#microsoft-connect")?.addEventListener("click", async () => {
+  const status = document.querySelector("#microsoft-status");
+  status.textContent = OIMI18n.t("Microsoft bağlantısı hazırlanıyor…");
+  try {
+    const response = await fetch("/api/microsoft/start", { credentials: "same-origin" });
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error);
+    location.href = data.url;
+  } catch (error) {
+    status.textContent = error.message || OIMI18n.t("Microsoft bağlantısı başlatılamadı");
+  }
+});
 async function loadKnowledge() {
   const body = document.querySelector("#knowledge-body");
   if (!body) return;

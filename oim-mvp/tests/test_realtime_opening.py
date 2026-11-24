@@ -7,6 +7,7 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 spec = importlib.util.spec_from_file_location('oim_backend', Path(__file__).resolve().parents[1] / 'backend.py')
 backend = importlib.util.module_from_spec(spec)

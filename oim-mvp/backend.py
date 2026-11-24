@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import asyncio, base64, hashlib, hmac, importlib.util, json, math, os, re, secrets, sqlite3, subprocess, threading, time
 import urllib.error, urllib.parse, urllib.request
+import calendar_engine, voice_platform
 from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -9,10 +10,14 @@ from urllib.parse import urlparse
 DB_PATH = os.environ.get('OIM_DB', '/var/lib/oim/oim.db')
 HOST = os.environ.get('OIM_HOST', '127.0.0.1')
 PORT = int(os.environ.get('OIM_PORT', '8787'))
+CALENDAR_BUSY_CACHE = {}
+CALENDAR_BUSY_LOCK = threading.Lock()
 SESSION_TTL = 60 * 60 * 12
 SESSIONS = {}
 LOGIN_ATTEMPTS = {}
 LOGIN_LOCK = threading.Lock()
+VOICE_PLATFORM_LIMITS = {}
+VOICE_PLATFORM_LIMIT_LOCK = threading.Lock()
 SECRET_PATH = os.environ.get('OIM_SECRET', '/var/lib/oim/.secret')
 PUBLIC_URL = os.environ.get('OIM_PUBLIC_URL', 'http://localhost:8080').rstrip('/')
 
@@ -30,6 +35,23 @@ def reveal(value):
     except Exception: return ''
 
 def now(): return int(time.time())
+
+def voice_platform_rate_allowed(key, limit=120, window_seconds=60):
+    current = time.monotonic()
+    with VOICE_PLATFORM_LIMIT_LOCK:
+        started, count = VOICE_PLATFORM_LIMITS.get(key, (current, 0))
+        if current - started >= window_seconds:
+            started, count = current, 0
+        if count >= limit:
+            VOICE_PLATFORM_LIMITS[key] = (started, count)
+            return False
+        VOICE_PLATFORM_LIMITS[key] = (started, count + 1)
+        if len(VOICE_PLATFORM_LIMITS) > 10000:
+            cutoff = current - max(window_seconds, 600)
+            for old_key, (old_started, _) in list(VOICE_PLATFORM_LIMITS.items()):
+                if old_started < cutoff:
+                    VOICE_PLATFORM_LIMITS.pop(old_key, None)
+        return True
 
 REALTIME_PRICES_USD_PER_MILLION = {
     'gpt-realtime': {'audio_input':32.0,'audio_output':64.0,'text_input':4.0,'text_output':16.0,'cached_input':0.40},
@@ -114,7 +136,16 @@ def db():
       CREATE INDEX IF NOT EXISTS callback_tenant_status_created ON callback_requests(tenant_id,status,created_at DESC);
       CREATE TABLE IF NOT EXISTS tenant_retention(tenant_id INTEGER PRIMARY KEY, transcript_retention_days INTEGER, updated_at INTEGER NOT NULL, last_purged_at INTEGER, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
       CREATE TABLE IF NOT EXISTS pbx_bridge_calls(call_id TEXT PRIMARY KEY, tenant_id INTEGER NOT NULL, caller TEXT NOT NULL DEFAULT '', called TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, consumed_at INTEGER, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
+      CREATE TABLE IF NOT EXISTS voice_platform_items(kind TEXT NOT NULL, item_id TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', tenant_id INTEGER, remote_hash TEXT NOT NULL DEFAULT '', remote_config TEXT NOT NULL DEFAULT '', local_config TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL, PRIMARY KEY(kind,item_id));
+      CREATE TABLE IF NOT EXISTS voice_platform_events(id INTEGER PRIMARY KEY, action TEXT NOT NULL, status TEXT NOT NULL, message TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS calendar_settings(tenant_id INTEGER PRIMARY KEY, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
+      CREATE TABLE IF NOT EXISTS elevenlabs_conversations(conversation_id TEXT PRIMARY KEY, tenant_id INTEGER NOT NULL, agent_id TEXT NOT NULL DEFAULT '', started_at INTEGER NOT NULL DEFAULT 0, duration_seconds INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', language TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', transcript_encrypted TEXT NOT NULL DEFAULT '', cost_credits INTEGER, updated_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
+      CREATE TABLE IF NOT EXISTS elevenlabs_webhook_events(event_key TEXT PRIMARY KEY, event_type TEXT NOT NULL, received_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS oim_calendar_tool_tokens(token_hash TEXT PRIMARY KEY, tenant_id INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id));
+      CREATE INDEX IF NOT EXISTS voice_conversations_tenant_started ON elevenlabs_conversations(tenant_id,started_at DESC);
     ''')
+    conn.execute("CREATE TABLE IF NOT EXISTS microsoft_tokens(tenant_id INTEGER PRIMARY KEY,access_token TEXT NOT NULL DEFAULT '',refresh_token TEXT NOT NULL DEFAULT '',expires_at INTEGER NOT NULL DEFAULT 0,calendar_id TEXT NOT NULL DEFAULT 'primary',updated_at INTEGER NOT NULL,FOREIGN KEY(tenant_id) REFERENCES tenants(id))")
+    conn.execute("CREATE TABLE IF NOT EXISTS calendar_oauth_states(state_hash TEXT PRIMARY KEY,provider TEXT NOT NULL,tenant_id INTEGER NOT NULL,expires_at INTEGER NOT NULL,FOREIGN KEY(tenant_id) REFERENCES tenants(id))")
     columns={row['name'] for row in conn.execute('PRAGMA table_info(calls)').fetchall()}
     provider_columns={row['name'] for row in conn.execute('PRAGMA table_info(provider_settings)').fetchall()}
     for name,definition in [('voice_id',"TEXT NOT NULL DEFAULT ''"),('check_status',"TEXT NOT NULL DEFAULT 'unchecked'"),('checked_at','INTEGER')]:
@@ -131,6 +162,22 @@ def db():
     if 'agreement_accepted' not in tenant_columns: conn.execute("ALTER TABLE tenants ADD COLUMN agreement_accepted INTEGER NOT NULL DEFAULT 0")
     if 'agreement_accepted_at' not in tenant_columns: conn.execute("ALTER TABLE tenants ADD COLUMN agreement_accepted_at INTEGER")
     if 'agreement_version' not in tenant_columns: conn.execute("ALTER TABLE tenants ADD COLUMN agreement_version TEXT NOT NULL DEFAULT ''")
+    appointment_columns={row['name'] for row in conn.execute('PRAGMA table_info(appointments)').fetchall()}
+    for name,definition in [('duration_minutes','INTEGER NOT NULL DEFAULT 60'),('buffer_minutes','INTEGER NOT NULL DEFAULT 0'),('staff_id','TEXT'),('idempotency_key','TEXT'),('calendar_event_id',"TEXT NOT NULL DEFAULT ''"),('calendar_provider',"TEXT NOT NULL DEFAULT 'internal'"),('department',"TEXT NOT NULL DEFAULT ''"),('recurrence_series_id','TEXT'),('recurrence_index','INTEGER NOT NULL DEFAULT 1')]:
+        if name not in appointment_columns: conn.execute(f'ALTER TABLE appointments ADD COLUMN {name} {definition}')
+    conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS appointment_tenant_idempotency ON appointments(tenant_id,idempotency_key) WHERE idempotency_key IS NOT NULL')
+    conn.execute('CREATE INDEX IF NOT EXISTS appointments_tenant_time_status ON appointments(tenant_id,appointment_at,status)')
+    conn.execute('CREATE INDEX IF NOT EXISTS appointments_tenant_series ON appointments(tenant_id,recurrence_series_id,recurrence_index)')
+    for appointment_tenant in conn.execute("SELECT DISTINCT tenant_id FROM appointments WHERE calendar_event_id<>'' AND calendar_provider='internal'").fetchall():
+        tid=int(appointment_tenant['tenant_id'])
+        calendar_config=calendar_engine.settings_for(conn,tid)
+        selected=calendar_config.get('external_calendar_provider','auto')
+        has_google=bool(conn.execute('SELECT 1 FROM google_tokens WHERE tenant_id=?',(tid,)).fetchone())
+        has_microsoft=bool(conn.execute('SELECT 1 FROM microsoft_tokens WHERE tenant_id=?',(tid,)).fetchone())
+        inferred=selected if selected in {'google','microsoft'} else ('google' if has_google else 'microsoft' if has_microsoft else 'internal')
+        if inferred!='internal': conn.execute("UPDATE appointments SET calendar_provider=? WHERE tenant_id=? AND calendar_event_id<>'' AND calendar_provider='internal'",(inferred,tid))
+    token_columns={row['name'] for row in conn.execute('PRAGMA table_info(oim_calendar_tool_tokens)').fetchall()}
+    if 'token_cipher' not in token_columns: conn.execute("ALTER TABLE oim_calendar_tool_tokens ADD COLUMN token_cipher TEXT NOT NULL DEFAULT ''")
     conn.execute('''CREATE TABLE IF NOT EXISTS crm_contacts(id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL, phone TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY(tenant_id) REFERENCES tenants(id))''')
     conn.execute('INSERT OR IGNORE INTO billing_settings(id,credits_per_minute,ai_multiplier,server_hourly_rate,minimum_credit,updated_at) VALUES(1,?,?,?,?,?)',(float(os.environ.get('OIM_CREDITS_PER_MINUTE','0.1')),1,0,10,now()))
     conn.commit()
@@ -297,7 +344,7 @@ def claim_bridge_call(call_id):
 
 BRIDGE_TOOLS=[
     {'type':'function','function':{'name':'search_knowledge','description':'Search the caller tenant published knowledge for business facts before answering questions about policies, services, prices, or working hours.','parameters':{'type':'object','properties':{'query':{'type':'string'}},'required':['query'],'additionalProperties':False}}},
-    {'type':'function','function':{'name':'create_appointment','description':'Save an appointment after the caller confirms all details.','parameters':{'type':'object','properties':{'customer_name':{'type':'string'},'phone':{'type':'string'},'service':{'type':'string'},'appointment_at':{'type':'string'},'notes':{'type':'string'}},'required':['customer_name','phone','service','appointment_at'],'additionalProperties':False}}},
+    {'type':'function','function':{'name':'create_appointment','description':'Save an appointment after the caller confirms all details. For explicitly requested repeated bookings, recurrence can be daily or weekly with 2–52 occurrences.','parameters':{'type':'object','properties':{'customer_name':{'type':'string'},'phone':{'type':'string'},'service':{'type':'string'},'department':{'type':'string'},'appointment_at':{'type':'string'},'notes':{'type':'string'},'duration_minutes':{'type':'integer'},'staff_id':{'type':'string'},'recurrence':{'type':'object','properties':{'frequency':{'type':'string','enum':['daily','weekly']},'interval':{'type':'integer','minimum':1,'maximum':4},'count':{'type':'integer','minimum':2,'maximum':52}},'required':['frequency','count'],'additionalProperties':False}},'required':['customer_name','phone','service','appointment_at'],'additionalProperties':False}}},
     {'type':'function','function':{'name':'request_human_callback','description':'Record a human callback request when the caller asks for a person or needs help. This does not transfer the live call.','parameters':{'type':'object','properties':{'phone':{'type':'string'},'reason':{'type':'string'}},'required':['phone'],'additionalProperties':False}}},
 ]
 
@@ -334,14 +381,15 @@ def execute_bridge_tool(name, arguments, tenant_id, call_id):
         limits={'customer_name':200,'phone':100,'service':300,'appointment_at':100,'notes':1000}
         if any(len(str(arguments.get(key,'') or ''))>limit for key,limit in limits.items()):
             return {'ok':False,'message':'Appointment details are too long.'},False
-        calendar_result=calendar_reserve(tenant_id,arguments)
-        if not calendar_result.get('ok'):
-            return {'ok':False,'message':calendar_result.get('message','Calendar reservation failed.')},False
         conn=db()
         try:
-            cur=conn.execute('INSERT INTO appointments(tenant_id,call_id,customer_name,phone,service,appointment_at,notes,created_at) VALUES(?,?,?,?,?,?,?,?)',(tenant_id,call_id,str(arguments['customer_name']).strip(),str(arguments['phone']).strip(),str(arguments['service']).strip(),str(arguments['appointment_at']).strip(),str(arguments.get('notes','')).strip(),now()))
-            conn.commit()
-            return {'ok':True,'appointment_id':cur.lastrowid,'message':'Appointment recorded. Confirm the reservation and say goodbye.'},True
+            arguments['idempotency_key']=hashlib.sha256((str(call_id)+'|'+str(arguments.get('customer_name'))+'|'+str(arguments.get('phone'))+'|'+str(arguments.get('service'))+'|'+str(arguments.get('appointment_at'))).encode()).hexdigest()
+            result=calendar_engine.book(conn,tenant_id,arguments,call_id,lambda values:calendar_reserve(tenant_id,values),lambda start,duration,exclude=None,provider=None:calendar_check(tenant_id,start,duration,exclude,provider),lambda event_id,action,details:calendar_modify(tenant_id,event_id,action,details))
+            if not result.get('available',result.get('success')):
+                return {'ok':False,**result,'message':result.get('message','Requested time is unavailable.')},False
+            return {'ok':True,**result,'message':'Appointment recorded. Confirm the reservation and say goodbye.'},True
+        except ValueError as error:
+            return {'ok':False,'message':str(error)},False
         finally:
             conn.close()
     if name=='request_human_callback':
@@ -599,10 +647,12 @@ async def realtime_sideband(call_id, tenant_id):
                         args=json.loads(event.get('arguments') or '{}')
                         required=('customer_name','phone','service','appointment_at')
                         if not all(str(args.get(k,'')).strip() for k in required): raise ValueError('Eksik randevu bilgisi')
-                        calendar_result=calendar_reserve(tenant_id,args)
-                        if not calendar_result.get('ok'): raise ValueError(calendar_result.get('message','Takvim rezervasyonu başarısız'))
-                        conn=db(); cur=conn.execute('INSERT INTO appointments(tenant_id,call_id,customer_name,phone,service,appointment_at,notes,created_at) VALUES(?,?,?,?,?,?,?,?)',(tenant_id,call_id,str(args['customer_name']).strip(),str(args['phone']).strip(),str(args['service']).strip(),str(args['appointment_at']).strip(),str(args.get('notes','')).strip(),now())); conn.commit(); appointment_id=cur.lastrowid; conn.close()
-                        result={'ok':True,'appointment_id':appointment_id,'message':'Randevu kaydedildi','calendar_event_id':calendar_result.get('event_id','')}
+                        conn=db()
+                        try:
+                            result=calendar_engine.book(conn,tenant_id,args,call_id,lambda values:calendar_reserve(tenant_id,values),lambda start,duration,exclude=None,provider=None:calendar_check(tenant_id,start,duration,exclude,provider),lambda event_id,action,details:calendar_modify(tenant_id,event_id,action,details))
+                            if not result.get('available',result.get('success')): result={'ok':False,**result}
+                            else: result={'ok':True,**result,'message':'Randevu kaydedildi'}
+                        finally: conn.close()
                     except Exception as exc:
                         result={'ok':False,'message':str(exc)}
                     await ws.send(json.dumps({'type':'conversation.item.create','item':{'type':'function_call_output','call_id':event.get('call_id'),'output':json.dumps(result,ensure_ascii=False)}}))
@@ -665,6 +715,114 @@ GOOGLE_REDIRECT=PUBLIC_URL+'/api/google/callback'
 def google_credentials():
     return os.environ.get('GOOGLE_CLIENT_ID','').strip(),os.environ.get('GOOGLE_CLIENT_SECRET','').strip()
 
+MICROSOFT_REDIRECT=PUBLIC_URL+'/api/microsoft/callback'
+MICROSOFT_GRAPH='https://graph.microsoft.com/v1.0'
+MICROSOFT_SCOPE='offline_access Calendars.ReadWrite'
+
+def microsoft_authority():
+    value=os.environ.get('MICROSOFT_TENANT_ID','common').strip() or 'common'
+    if not re.fullmatch(r'[A-Za-z0-9.-]{1,128}',value):
+        raise ValueError('Microsoft tenant authority is invalid.')
+    return value
+
+def microsoft_credentials():
+    return os.environ.get('MICROSOFT_CLIENT_ID','').strip(),os.environ.get('MICROSOFT_CLIENT_SECRET','').strip()
+
+def microsoft_token_request(fields):
+    authority=microsoft_authority()
+    request=urllib.request.Request('https://login.microsoftonline.com/'+authority+'/oauth2/v2.0/token',data=urllib.parse.urlencode(fields).encode(),headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST')
+    with urllib.request.urlopen(request,timeout=20) as response:
+        result=json.loads(response.read() or b'{}')
+    if not result.get('access_token'):
+        raise ValueError('Microsoft OAuth did not return an access token.')
+    return result
+
+def microsoft_access_token(tenant_id):
+    client_id,client_secret=microsoft_credentials()
+    conn=db(); row=conn.execute('SELECT * FROM microsoft_tokens WHERE tenant_id=?',(tenant_id,)).fetchone(); conn.close()
+    if not row: return ''
+    if row['expires_at']>now()+60: return reveal(row['access_token'])
+    refresh=reveal(row['refresh_token'])
+    if not refresh or not client_id or not client_secret: return ''
+    try:
+        token=microsoft_token_request({'client_id':client_id,'client_secret':client_secret,'refresh_token':refresh,'grant_type':'refresh_token','redirect_uri':MICROSOFT_REDIRECT,'scope':MICROSOFT_SCOPE})
+        access=token['access_token']; rotated=token.get('refresh_token') or refresh
+        conn=db(); conn.execute('UPDATE microsoft_tokens SET access_token=?,refresh_token=?,expires_at=?,updated_at=? WHERE tenant_id=?',(protect(access),protect(rotated),now()+int(token.get('expires_in',3600)),now(),tenant_id)); conn.commit(); conn.close()
+        return access
+    except Exception:
+        return ''
+
+def microsoft_api(tenant_id,method,path,payload=None):
+    token=microsoft_access_token(tenant_id)
+    if not token: return None
+    if path.startswith('https://'):
+        parsed=urlparse(path)
+        if parsed.scheme!='https' or parsed.hostname!='graph.microsoft.com': return None
+        url=path
+    else:
+        url=MICROSOFT_GRAPH+'/'+path.lstrip('/')
+    body=json.dumps(payload).encode() if payload is not None else None
+    headers={'Authorization':'Bearer '+token,'Prefer':'outlook.timezone="UTC"'}
+    if body is not None: headers['Content-Type']='application/json'
+    try:
+        request=urllib.request.Request(url,data=body,headers=headers,method=method)
+        with urllib.request.urlopen(request,timeout=15) as response:
+            return json.loads(response.read() or b'{}')
+    except Exception:
+        return None
+
+def calendar_external_provider(tenant_id, override=None):
+    conn=db()
+    try:
+        config=calendar_engine.settings_for(conn,tenant_id)
+        if override in {'internal','google','microsoft'}:
+            return ('',False) if override=='internal' else (override,True)
+        selected=config.get('external_calendar_provider','auto')
+        if selected=='internal': return '',False
+        if selected in {'google','microsoft'}: return selected,True
+        google=conn.execute('SELECT 1 FROM google_tokens WHERE tenant_id=?',(tenant_id,)).fetchone()
+        microsoft=conn.execute('SELECT 1 FROM microsoft_tokens WHERE tenant_id=?',(tenant_id,)).fetchone()
+        return ('google',False) if google else (('microsoft',False) if microsoft else ('',False))
+    finally:
+        conn.close()
+
+def microsoft_calendar_events(tenant_id,start,end):
+    start_utc=start.astimezone(timezone.utc).isoformat().replace('+00:00','Z')
+    end_utc=end.astimezone(timezone.utc).isoformat().replace('+00:00','Z')
+    query=urllib.parse.urlencode({'startDateTime':start_utc,'endDateTime':end_utc,'$select':'id,start,end,isCancelled','$top':'500'})
+    url=MICROSOFT_GRAPH+'/me/calendarView?'+query
+    items=[]
+    for _ in range(5):
+        result=microsoft_api(tenant_id,'GET',url)
+        if result is None or not isinstance(result.get('value'),list): return None
+        items.extend(result['value'])
+        url=result.get('@odata.nextLink','')
+        if not url: return items
+    return None
+
+def graph_datetime(value):
+    candidate=datetime.fromisoformat(str(value).replace('Z','+00:00'))
+    return candidate.replace(tzinfo=timezone.utc) if candidate.tzinfo is None else candidate.astimezone(timezone.utc)
+
+def microsoft_calendar_check(tenant_id,start,duration_minutes,config,exclude_event_id=None):
+    padding=timedelta(minutes=config['buffer_minutes'])
+    window_start=(start-padding).astimezone(timezone.utc)
+    window_end=(start+timedelta(minutes=duration_minutes)+padding).astimezone(timezone.utc)
+    day_start=datetime.combine(start.date(),datetime.min.time(),start.tzinfo)
+    day_end=datetime.combine(start.date()+timedelta(days=1),datetime.min.time(),start.tzinfo)
+    events=microsoft_calendar_events(tenant_id,day_start,day_end)
+    if events is None: return {'ok':False,'message':'Microsoft Outlook availability could not be checked.'}
+    try:
+        for event in events:
+            if event.get('id')==exclude_event_id or event.get('isCancelled'): continue
+            event_start=graph_datetime(event['start']['dateTime'])
+            event_end=graph_datetime(event['end']['dateTime'])
+            if window_start<event_end and event_start<window_end:
+                return {'ok':True,'available':False,'connected':True}
+    except (KeyError,TypeError,ValueError):
+        return {'ok':False,'message':'Microsoft Outlook returned an unreadable calendar event.'}
+    return {'ok':True,'available':True,'connected':True}
+
 def google_access_token(tenant_id):
     client_id,client_secret=google_credentials()
     conn=db(); row=conn.execute('SELECT * FROM google_tokens WHERE tenant_id=?',(tenant_id,)).fetchone(); conn.close()
@@ -691,25 +849,173 @@ def google_api(tenant_id,method,url,payload=None):
         with urllib.request.urlopen(req,timeout=15) as response: return json.loads(response.read() or '{}')
     except Exception: return None
 
+def clear_calendar_busy_cache(tenant_id):
+    with CALENDAR_BUSY_LOCK:
+        for key in [key for key in CALENDAR_BUSY_CACHE if key[0]==int(tenant_id)]:
+            CALENDAR_BUSY_CACHE.pop(key,None)
+
 def calendar_reserve(tenant_id,args):
+    conn=db()
+    config=calendar_engine.settings_for(conn,tenant_id)
+    provider,explicit=calendar_external_provider(tenant_id,args.get('calendar_provider'))
+    token_row=conn.execute('SELECT calendar_id FROM google_tokens WHERE tenant_id=?',(tenant_id,)).fetchone()
+    microsoft_row=conn.execute('SELECT calendar_id FROM microsoft_tokens WHERE tenant_id=?',(tenant_id,)).fetchone()
+    conn.close()
+    if provider=='microsoft':
+        if not microsoft_row:
+            return {'ok':False,'message':'Microsoft Outlook is selected but this customer has not connected it.'} if explicit else {'ok':True,'connected':False}
+        if not microsoft_access_token(tenant_id): return {'ok':False,'message':'Microsoft Outlook token refresh failed; no external reservation was made.'}
+        try:
+            start=calendar_engine.localize_start(str(args['appointment_at']).strip(),config)
+            end=start+timedelta(minutes=int(args.get('duration_minutes') or config['duration_minutes']))
+        except Exception: return {'ok':False,'message':'Reservation date and time could not be read.'}
+        availability=microsoft_calendar_check(tenant_id,start,int(args.get('duration_minutes') or config['duration_minutes']),config)
+        if not availability.get('ok') or not availability.get('available'):
+            return {'ok':False,'message':availability.get('message','Selected time is busy in Microsoft Outlook.')}
+        start_utc=start.astimezone(timezone.utc).replace(tzinfo=None).isoformat(timespec='seconds')
+        end_utc=end.astimezone(timezone.utc).replace(tzinfo=None).isoformat(timespec='seconds')
+        event={'subject':f"{args['service']} — {args['customer_name']}",'body':{'contentType':'text','content':str(args.get('notes',''))},'start':{'dateTime':start_utc,'timeZone':'UTC'},'end':{'dateTime':end_utc,'timeZone':'UTC'}}
+        if args.get('idempotency_key'): event['transactionId']=str(args['idempotency_key'])[:100]
+        created=microsoft_api(tenant_id,'POST','me/events',event)
+        if not created or not created.get('id'): return {'ok':False,'message':'Microsoft Outlook reservation could not be created.'}
+        return {'ok':True,'connected':True,'event_id':created['id'],'provider':'microsoft'}
+    if provider=='': return {'ok':True,'connected':False,'provider':'internal'}
+    if not token_row:
+        return {'ok':False,'message':'Google Calendar is selected but this customer has not connected it.'} if explicit else {'ok':True,'connected':False}
+    calendar_id=token_row['calendar_id'] or 'primary'
     token=google_access_token(tenant_id)
-    if not token: return {'ok':True,'connected':False}
-    from datetime import datetime,timedelta
-    raw=str(args['appointment_at']).strip()
+    if not token: return {'ok':False,'message':'Google Calendar token refresh failed; no external reservation was made.'}
     try:
-        start=datetime.fromisoformat(raw.replace('Z','+00:00'))
-        if start.tzinfo is None: start=start.replace().astimezone()
+        start=calendar_engine.localize_start(str(args['appointment_at']).strip(),config)
+        end=start+timedelta(minutes=int(args.get('duration_minutes') or config['duration_minutes']))
     except Exception: return {'ok':False,'message':'Rezervasyon tarihi anlaşılmadı'}
-    end=start+timedelta(minutes=60)
-    start_iso=start.isoformat(); end_iso=end.isoformat()
-    busy=google_api(tenant_id,'POST','https://www.googleapis.com/calendar/v3/freeBusy',{'timeMin':start_iso,'timeMax':end_iso,'items':[{'id':'primary'}]})
+    buffered_start=start-timedelta(minutes=config['buffer_minutes']); buffered_end=end+timedelta(minutes=config['buffer_minutes'])
+    start_iso=buffered_start.astimezone(timezone.utc).isoformat(); end_iso=buffered_end.astimezone(timezone.utc).isoformat()
+    busy=google_api(tenant_id,'POST','https://www.googleapis.com/calendar/v3/freeBusy',{'timeMin':start_iso,'timeMax':end_iso,'items':[{'id':calendar_id}]})
     if busy is None: return {'ok':False,'message':'Google Calendar uygunluk kontrolü başarısız'}
-    calendars=busy.get('calendars',{}); primary=calendars.get('primary',{})
+    calendars=busy.get('calendars',{}); primary=calendars.get(calendar_id,{})
     if primary.get('busy'): return {'ok':False,'message':'Seçilen saat Google Calendar’da dolu'}
-    event={'summary':f"{args['service']} — {args['customer_name']}",'description':str(args.get('notes','')),'start':{'dateTime':start_iso,'timeZone':'Europe/Istanbul'},'end':{'dateTime':end_iso,'timeZone':'Europe/Istanbul'},'extendedProperties':{'private':{'oim_tenant':str(tenant_id)}}}
-    created=google_api(tenant_id,'POST','https://www.googleapis.com/calendar/v3/calendars/primary/events',event)
+    event={'summary':f"{args['service']} — {args['customer_name']}",'description':str(args.get('notes','')),'start':{'dateTime':start.isoformat(),'timeZone':config['timezone']},'end':{'dateTime':end.isoformat(),'timeZone':config['timezone']},'extendedProperties':{'private':{'oim_tenant':str(tenant_id)}}}
+    created=google_api(tenant_id,'POST','https://www.googleapis.com/calendar/v3/calendars/'+urllib.parse.quote(calendar_id,safe='')+'/events',event)
     if not created or not created.get('id'): return {'ok':False,'message':'Google Calendar rezervasyonu oluşturulamadı'}
-    return {'ok':True,'connected':True,'event_id':created['id']}
+    clear_calendar_busy_cache(tenant_id)
+    return {'ok':True,'connected':True,'event_id':created['id'],'provider':'google'}
+
+def calendar_check(tenant_id, appointment_at, duration_minutes, exclude_event_id=None, provider_override=None):
+    conn=db()
+    config=calendar_engine.settings_for(conn,tenant_id)
+    provider,explicit=calendar_external_provider(tenant_id,provider_override)
+    token_row=conn.execute('SELECT calendar_id FROM google_tokens WHERE tenant_id=?',(tenant_id,)).fetchone()
+    microsoft_row=conn.execute('SELECT calendar_id FROM microsoft_tokens WHERE tenant_id=?',(tenant_id,)).fetchone()
+    conn.close()
+    if provider=='microsoft':
+        if not microsoft_row:
+            return {'ok':False,'available':False,'message':'Microsoft Outlook is selected but this customer has not connected it.'} if explicit else {'ok':True,'available':True,'connected':False}
+        if not microsoft_access_token(tenant_id): return {'ok':False,'message':'Microsoft Outlook token refresh failed; availability could not be verified.'}
+        try:
+            start=calendar_engine.localize_start(str(appointment_at),config)
+            return microsoft_calendar_check(tenant_id,start,int(duration_minutes or config['duration_minutes']),config,exclude_event_id)
+        except Exception:
+            return {'ok':False,'message':'Appointment time could not be checked.'}
+    if provider=='':
+        if explicit and config.get('external_calendar_provider')=='google' and not token_row:
+            return {'ok':False,'available':False,'message':'Google Calendar is selected but this customer has not connected it.'}
+        return {'ok':True,'available':True,'connected':False}
+    if not token_row:
+        return {'ok':False,'available':False,'message':'Google Calendar is selected but this customer has not connected it.'} if explicit else {'ok':True,'available':True,'connected':False}
+    calendar_id=token_row['calendar_id'] or 'primary'
+    if not google_access_token(tenant_id): return {'ok':False,'message':'Google Calendar token refresh failed; availability could not be verified.'}
+    try:
+        start=calendar_engine.localize_start(str(appointment_at),config)
+        end=start+timedelta(minutes=int(duration_minutes or config['duration_minutes']))
+    except Exception: return {'ok':False,'message':'Appointment time could not be checked.'}
+    buffer=timedelta(minutes=config['buffer_minutes'])
+    window_start=start-buffer; window_end=end+buffer
+    if exclude_event_id:
+        time_min=datetime.combine(start.date(),datetime.min.time(),start.tzinfo).astimezone(timezone.utc).isoformat()
+        time_max=datetime.combine(start.date()+timedelta(days=1),datetime.min.time(),start.tzinfo).astimezone(timezone.utc).isoformat()
+        events_url='https://www.googleapis.com/calendar/v3/calendars/'+urllib.parse.quote(calendar_id,safe='')+'/events?'+urllib.parse.urlencode({'timeMin':time_min,'timeMax':time_max,'singleEvents':'true','maxResults':2500,'showDeleted':'false'})
+        result=google_api(tenant_id,'GET',events_url)
+        if result is None or result.get('nextPageToken'): return {'ok':False,'message':'Google Calendar events could not be checked completely.'}
+        for event in result.get('items',[]):
+            if event.get('id')==exclude_event_id or event.get('status')=='cancelled': continue
+            try:
+                event_start=event.get('start',{}).get('dateTime') or event.get('start',{}).get('date')
+                event_end=event.get('end',{}).get('dateTime') or event.get('end',{}).get('date')
+                if len(event_start)==10: event_start=datetime.combine(date.fromisoformat(event_start),datetime.min.time(),start.tzinfo).isoformat()
+                if len(event_end)==10: event_end=datetime.combine(date.fromisoformat(event_end),datetime.min.time(),start.tzinfo).isoformat()
+                event_start=calendar_engine.localize_start(event_start,config).astimezone(timezone.utc)
+                event_end=calendar_engine.localize_start(event_end,config).astimezone(timezone.utc)
+                if window_start.astimezone(timezone.utc)<event_end and event_start<window_end.astimezone(timezone.utc): return {'ok':True,'available':False,'connected':True}
+            except (KeyError,TypeError,ValueError): return {'ok':False,'message':'Google Calendar returned an unreadable event.'}
+        return {'ok':True,'available':True,'connected':True}
+    key=(int(tenant_id),calendar_id,start.date().isoformat())
+    with CALENDAR_BUSY_LOCK:
+        cached=CALENDAR_BUSY_CACHE.get(key)
+    if not cached or cached[0] < time.monotonic():
+        local_start=datetime.combine(start.date(),datetime.min.time(),start.tzinfo)
+        local_end=datetime.combine(start.date()+timedelta(days=1),datetime.min.time(),start.tzinfo)
+        result=google_api(tenant_id,'POST','https://www.googleapis.com/calendar/v3/freeBusy',{'timeMin':local_start.astimezone(timezone.utc).isoformat(),'timeMax':local_end.astimezone(timezone.utc).isoformat(),'items':[{'id':calendar_id}]})
+        if result is None: return {'ok':False,'message':'Google Calendar availability check failed.'}
+        calendar=result.get('calendars',{}).get(calendar_id,{})
+        if calendar.get('errors'): return {'ok':False,'message':'Google Calendar availability check failed.'}
+        cached=(time.monotonic()+30,calendar.get('busy') or [])
+        with CALENDAR_BUSY_LOCK:
+            if len(CALENDAR_BUSY_CACHE)>500: CALENDAR_BUSY_CACHE.clear()
+            CALENDAR_BUSY_CACHE[key]=cached
+    busy=False
+    for interval in cached[1]:
+        try:
+            busy_start=datetime.fromisoformat(interval['start'].replace('Z','+00:00'))
+            busy_end=datetime.fromisoformat(interval['end'].replace('Z','+00:00'))
+            if window_start.astimezone(timezone.utc)<busy_end.astimezone(timezone.utc) and busy_start.astimezone(timezone.utc)<window_end.astimezone(timezone.utc):
+                busy=True; break
+        except (KeyError,TypeError,ValueError):
+            return {'ok':False,'message':'Google Calendar returned an unreadable busy interval.'}
+    return {'ok':True,'available':not busy,'connected':True}
+
+def calendar_modify(tenant_id, event_id, action, values):
+    conn=db()
+    config=calendar_engine.settings_for(conn,tenant_id)
+    provider,explicit=calendar_external_provider(tenant_id,values.get('calendar_provider'))
+    token_row=conn.execute('SELECT calendar_id FROM google_tokens WHERE tenant_id=?',(tenant_id,)).fetchone()
+    microsoft_row=conn.execute('SELECT calendar_id FROM microsoft_tokens WHERE tenant_id=?',(tenant_id,)).fetchone()
+    conn.close()
+    if provider=='microsoft':
+        if not microsoft_row:
+            return {'ok':False,'message':'Microsoft Outlook is selected but this customer has not connected it.'} if explicit else {'ok':True,'connected':False}
+        if not microsoft_access_token(tenant_id): return {'ok':False,'message':'Microsoft Outlook token refresh failed.'}
+        base='me/events/'+urllib.parse.quote(str(event_id),safe='')
+        if action=='cancel':
+            result=microsoft_api(tenant_id,'DELETE',base)
+            return {'ok':result is not None,'message':'Microsoft Outlook cancellation failed.' if result is None else ''}
+        try:
+            start=calendar_engine.localize_start(str(values['appointment_at']),config)
+            end=start+timedelta(minutes=int(values.get('duration_minutes') or config['duration_minutes']))
+        except Exception: return {'ok':False,'message':'New appointment time could not be checked.'}
+        payload={'start':{'dateTime':start.astimezone(timezone.utc).replace(tzinfo=None).isoformat(timespec='seconds'),'timeZone':'UTC'},'end':{'dateTime':end.astimezone(timezone.utc).replace(tzinfo=None).isoformat(timespec='seconds'),'timeZone':'UTC'}}
+        updated=microsoft_api(tenant_id,'PATCH',base,payload)
+        return {'ok':updated is not None,'message':'Microsoft Outlook reschedule failed.' if updated is None else ''}
+    if provider=='' and explicit:
+        selected=config.get('external_calendar_provider')
+        if selected=='google' and not token_row: return {'ok':False,'message':'Google Calendar is selected but this customer has not connected it.'}
+    if provider=='': return {'ok':True,'connected':False}
+    if not token_row:
+        return {'ok':False,'message':'Google Calendar is selected but this customer has not connected it.'} if explicit else {'ok':True,'connected':False}
+    calendar_id=token_row['calendar_id'] or 'primary'
+    if not google_access_token(tenant_id): return {'ok':False,'message':'Google Calendar token refresh failed.'}
+    base='https://www.googleapis.com/calendar/v3/calendars/'+urllib.parse.quote(calendar_id,safe='')+'/events/'+urllib.parse.quote(str(event_id),safe='')
+    if action=='cancel':
+        result=google_api(tenant_id,'DELETE',base)
+        if result is not None: clear_calendar_busy_cache(tenant_id)
+        return {'ok':result is not None,'message':'Google Calendar cancellation failed.' if result is None else ''}
+    try:
+        start=calendar_engine.localize_start(str(values['appointment_at']),config)
+        end=start+timedelta(minutes=int(values.get('duration_minutes') or config['duration_minutes']))
+    except Exception: return {'ok':False,'message':'New appointment time could not be checked.'}
+    updated=google_api(tenant_id,'PATCH',base,{'start':{'dateTime':start.isoformat(),'timeZone':config['timezone']},'end':{'dateTime':end.isoformat(),'timeZone':config['timezone']}})
+    if updated: clear_calendar_busy_cache(tenant_id)
+    return {'ok':bool(updated),'message':'Google Calendar reschedule failed.' if not updated else ''}
 
 def knowledge_context(tenant_id):
     conn=db(); rows=conn.execute('SELECT language,title,content FROM knowledge_documents WHERE tenant_id=? AND status="published" ORDER BY language,updated_at DESC',(tenant_id,)).fetchall(); conn.close()
@@ -926,6 +1232,7 @@ def purge_expired_transcripts(timestamp=None):
             if ids:
                 conn.executemany('UPDATE calls SET transcript="" WHERE tenant_id=? AND call_id=?',[(policy['tenant_id'],call_id) for call_id in ids])
                 conn.executemany('UPDATE call_reviews SET summary="",notes="" WHERE tenant_id=? AND call_id=?',[(policy['tenant_id'],call_id) for call_id in ids])
+            conn.execute('UPDATE elevenlabs_conversations SET transcript_encrypted="",summary="" WHERE tenant_id=? AND started_at>0 AND started_at<?',(policy['tenant_id'],cutoff))
             conn.execute('UPDATE tenant_retention SET last_purged_at=? WHERE tenant_id=?',(timestamp,policy['tenant_id']))
             results.append({'tenant_id':policy['tenant_id'],'purged_calls':len(ids)})
         conn.commit(); return results
@@ -968,7 +1275,12 @@ class Handler(BaseHTTPRequestHandler):
         body=json.dumps(data,ensure_ascii=False).encode()
         self.send_response(status); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Content-Length',str(len(body))); self.send_header('Cache-Control','no-store'); self.end_headers(); self.wfile.write(body)
     def body(self):
-        length=int(self.headers.get('Content-Length','0')); return json.loads(self.rfile.read(length) or '{}')
+        length=int(self.headers.get('Content-Length','0'))
+        maximum=30*1024*1024 if self.path.startswith('/api/admin/voice-platform/') else 2*1024*1024
+        if length<0 or length>maximum: raise ValueError('Request body is too large')
+        value=json.loads(self.rfile.read(length) or '{}')
+        if not isinstance(value,dict): raise ValueError('Request body must be a JSON object')
+        return value
     def session(self):
         cookie=self.headers.get('Cookie',''); token=next((x.split('=',1)[1] for x in cookie.split('; ') if x.startswith('oim_session=')),None)
         info=SESSIONS.get(token)
@@ -982,6 +1294,36 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path=urlparse(self.path).path
         if path == '/api/health': return self.send_json({'ok':True,'service':'oim-mvp'})
+        if path == '/api/microsoft/start':
+            s=self.require()
+            if not s: return
+            client_id,client_secret=microsoft_credentials()
+            if not client_id or not client_secret: return self.send_json({'error':'Microsoft OAuth has not been configured on this server.'},503)
+            if s['role']!='customer': return self.send_json({'error':'Connect Outlook from the customer account that owns this calendar.'},403)
+            state=secrets.token_urlsafe(32)
+            state_hash=hashlib.sha256(state.encode()).hexdigest()
+            conn=self.open_db(); conn.execute('DELETE FROM calendar_oauth_states WHERE expires_at<?',(now(),)); conn.execute('INSERT INTO calendar_oauth_states(state_hash,provider,tenant_id,expires_at) VALUES(?,?,?,?)',(state_hash,'microsoft',s['tenant_id'],now()+600)); conn.commit(); conn.close()
+            authority=microsoft_authority()
+            query=urllib.parse.urlencode({'client_id':client_id,'redirect_uri':MICROSOFT_REDIRECT,'response_type':'code','response_mode':'query','scope':MICROSOFT_SCOPE,'state':state})
+            return self.send_json({'url':'https://login.microsoftonline.com/'+authority+'/oauth2/v2.0/authorize?'+query})
+        if path == '/api/microsoft/callback':
+            query=urllib.parse.parse_qs(urlparse(self.path).query); code=(query.get('code') or [''])[0]; state=(query.get('state') or [''])[0]
+            state_hash=hashlib.sha256(state.encode()).hexdigest() if state else ''
+            conn=self.open_db(); oauth_state=conn.execute('SELECT tenant_id,expires_at FROM calendar_oauth_states WHERE state_hash=? AND provider=?',(state_hash,'microsoft')).fetchone()
+            if oauth_state: conn.execute('DELETE FROM calendar_oauth_states WHERE state_hash=?',(state_hash,)); conn.commit()
+            conn.close()
+            connected=False
+            try:
+                if not oauth_state or oauth_state['expires_at']<now() or not code: raise ValueError('invalid OAuth state')
+                client_id,client_secret=microsoft_credentials()
+                token=microsoft_token_request({'client_id':client_id,'client_secret':client_secret,'code':code,'redirect_uri':MICROSOFT_REDIRECT,'grant_type':'authorization_code','scope':MICROSOFT_SCOPE})
+                conn=self.open_db(); old=conn.execute('SELECT refresh_token FROM microsoft_tokens WHERE tenant_id=?',(oauth_state['tenant_id'],)).fetchone(); refresh=token.get('refresh_token') or (reveal(old['refresh_token']) if old else '')
+                conn.execute('INSERT INTO microsoft_tokens(tenant_id,access_token,refresh_token,expires_at,calendar_id,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(tenant_id) DO UPDATE SET access_token=excluded.access_token,refresh_token=excluded.refresh_token,expires_at=excluded.expires_at,updated_at=excluded.updated_at',(oauth_state['tenant_id'],protect(token['access_token']),protect(refresh),now()+int(token.get('expires_in',3600)),'primary',now()))
+                conn.commit(); conn.close(); connected=True
+            except Exception:
+                pass
+            location=PUBLIC_URL+'/#calendar'
+            self.send_response(302); self.send_header('Location',location); self.end_headers(); return
         if path == '/api/google/start':
             s=self.require()
             if not s: return
@@ -1009,11 +1351,25 @@ class Handler(BaseHTTPRequestHandler):
         s=self.require()
         if not s: return
         conn=self.open_db(); row=conn.execute('SELECT * FROM tenants WHERE id=?',(s['tenant_id'],)).fetchone()
+        if path.startswith('/api/admin/voice-platform/'):
+            if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
+            sensitive=path.endswith('/conversation-signed-url')
+            if not voice_platform_rate_allowed(('admin',s['tenant_id'],'signed-url' if sensitive else 'read'),10 if sensitive else 120): return self.send_json({'error':'Too many voice-platform requests. Try again shortly.'},429)
+            query=urllib.parse.parse_qs(urlparse(self.path).query,keep_blank_values=True)
+            provider=conn.execute("SELECT api_key FROM provider_settings WHERE provider='elevenlabs'").fetchone()
+            result=voice_platform.get_route(path,query,conn,reveal(provider['api_key']) if provider else '',reveal,calendar_check)
+            if result is None: return self.send_json({'error':'Voice platform route not found.'},404)
+            return self.send_json(result[1],result[0])
         if path == '/api/me': return self.send_json({'user':public_tenant(row)})
         if path == '/api/google/status':
             token_row=conn.execute('SELECT calendar_id,expires_at FROM google_tokens WHERE tenant_id=?',(s['tenant_id'],)).fetchone()
             client_id,client_secret=google_credentials()
             return self.send_json({'configured':bool(client_id and client_secret),'connected':bool(token_row),'calendar_id':token_row['calendar_id'] if token_row else 'primary'})
+        if path == '/api/microsoft/status':
+            token_row=conn.execute('SELECT calendar_id,expires_at FROM microsoft_tokens WHERE tenant_id=?',(s['tenant_id'],)).fetchone()
+            client_id,client_secret=microsoft_credentials()
+            config=calendar_engine.settings_for(conn,s['tenant_id'])
+            return self.send_json({'configured':bool(client_id and client_secret),'connected':bool(token_row),'calendar_id':token_row['calendar_id'] if token_row else 'primary','selected':config.get('external_calendar_provider','auto')})
         if path == '/api/ledger':
             query=urllib.parse.parse_qs(urlparse(self.path).query); tid=s['tenant_id'] if s['role']!='admin' else int((query.get('tenant_id') or [0])[0]); kind=(query.get('kind') or [''])[0].strip().lower(); params=[tid]; sql='SELECT amount,kind,reason,meta,created_at FROM ledger WHERE tenant_id=?';
             if kind in {'credit','debit'}: sql+=' AND kind=?'; params.append(kind)
@@ -1224,9 +1580,62 @@ Appointment policy:
                     record_call_failure(str(call_id),'accept_failed',bill=False)
                     return self.send_json({'ok':False,'accepted':False},502)
             return self.send_json({'ok':True,'ignored':True})
+        if path == '/api/webhooks/elevenlabs':
+            try:
+                if not voice_platform_rate_allowed(('webhook','elevenlabs'),300): return self.send_json({'error':'Webhook rate limit exceeded.'},429)
+                length=int(self.headers.get('Content-Length','0'))
+                if length<1 or length>2*1024*1024: return self.send_json({'error':'Invalid webhook payload size.'},413)
+                raw=self.rfile.read(length)
+                secret=os.environ.get('ELEVENLABS_WEBHOOK_SECRET','').strip()
+                if not secret:
+                    settings_conn=self.open_db()
+                    try: settings=settings_conn.execute("SELECT value FROM system_settings WHERE key='elevenlabs_webhook_secret'").fetchone()
+                    finally: settings_conn.close()
+                    secret=reveal(settings['value']) if settings else ''
+                webhook_conn=self.open_db()
+                try: status,result=voice_platform.process_post_call_webhook(raw,self.headers.get('ElevenLabs-Signature',''),secret,webhook_conn,protect)
+                finally: webhook_conn.close()
+                return self.send_json(result,status)
+            except Exception:
+                return self.send_json({'error':'Webhook processing failed.'},500)
+        if path.startswith('/api/webhooks/oim-calendar/'):
+            try:
+                bearer=self.headers.get('Authorization','')
+                bearer_hash=hashlib.sha256(bearer.encode()).hexdigest() if bearer else 'missing'
+                if not voice_platform_rate_allowed(('calendar-tool',bearer_hash),120): return self.send_json({'error':'Calendar tool rate limit exceeded.'},429)
+                length=int(self.headers.get('Content-Length','0'))
+                if length<1 or length>64*1024: return self.send_json({'error':'Invalid calendar tool request size.'},413)
+                operation=path.rsplit('/',1)[-1]
+                tool_conn=self.open_db()
+                try: status,result=voice_platform.dispatch_calendar_tool(operation,self.rfile.read(length),self.headers.get('Authorization',''),tool_conn,reveal,reserve_calendar=lambda tid,values:calendar_reserve(tid,values),check_calendar=calendar_check,modify_calendar=calendar_modify,conversation_id=self.headers.get('X-OIM-Conversation-ID',''))
+                finally: tool_conn.close()
+                return self.send_json(result,status)
+            except Exception:
+                return self.send_json({'error':'Calendar tool request failed.'},500)
         s=self.require()
         if not s: return
-        conn=self.open_db(); data=self.body()
+        conn=self.open_db()
+        if path.startswith('/api/admin/voice-platform/'):
+            if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
+            expensive='/run-tests/' in path or path.endswith('/tools/test') or path.endswith('/calendar-tools') or path.endswith('/sync')
+            if not voice_platform_rate_allowed(('admin',s['tenant_id'],'write-heavy' if expensive else 'write'),10 if expensive else 60): return self.send_json({'error':'Too many voice-platform changes. Try again shortly.'},429)
+            try: data=self.body()
+            except (ValueError,json.JSONDecodeError) as error: return self.send_json({'error':str(error)},413 if 'large' in str(error).lower() else 400)
+            provider=conn.execute("SELECT api_key FROM provider_settings WHERE provider='elevenlabs'").fetchone()
+            api_key=reveal(provider['api_key']) if provider else ''
+            result=voice_platform.post_route(path,data,conn,api_key,protect,reveal,PUBLIC_URL)
+            if result is None and path == '/api/admin/voice-platform/calendar/book':
+                try:
+                    tenant_id=int(data.get('tenant_id',0))
+                    if tenant_id<1 or not conn.execute("SELECT 1 FROM tenants WHERE id=? AND role='customer'",(tenant_id,)).fetchone():
+                        return self.send_json({'error':'Select a valid customer.'},400)
+                    result=(200,calendar_engine.book(conn,tenant_id,data.get('appointment') or {},data.get('call_id'),lambda values:calendar_reserve(tenant_id,values),lambda start,duration,exclude=None,provider=None:calendar_check(tenant_id,start,duration,exclude,provider),lambda event_id,action,details:calendar_modify(tenant_id,event_id,action,details)))
+                except (TypeError,ValueError) as error:
+                    result=(400,{'error':str(error)})
+            if result is not None: return self.send_json(result[1],result[0])
+            return self.send_json({'error':'Voice platform route not found.'},404)
+        try: data=self.body()
+        except (ValueError,json.JSONDecodeError) as error: return self.send_json({'error':str(error)},413 if 'large' in str(error).lower() else 400)
         if path.startswith('/api/contacts/') and (path.endswith('/update') or path.endswith('/delete')):
             parts=path.strip('/').split('/')
             try:
@@ -1292,14 +1701,17 @@ Appointment policy:
             if not is_test and not row['enabled']: return self.send_json({'error':'Önce sağlayıcıyı etkinleştirin.'},400)
             if provider in {'openai','openai_ai'} and not row['model']: return self.send_json({'error':'Model kimliği gerekli.'},400)
             payload=None
+            preview_voice_id=str(data.get('voice_id') or row['voice_id']).strip()
             if not is_test:
                 if not isinstance(data.get('text'),str): return self.send_json({'error':'Metin gerekli.'},400)
                 text=str(data.get('text','')).strip()
                 limit=500 if provider=='elevenlabs' else 1000
                 if not text or len(text)>limit: return self.send_json({'error':f'Metin 1–{limit} karakter olmalı.'},400)
                 if provider=='elevenlabs':
-                    if not row['voice_id']: return self.send_json({'error':'Ses kimliği gerekli.'},400)
-                    payload={'text':text,'model_id':row['model'] or 'eleven_flash_v2_5'}
+                    if not preview_voice_id: return self.send_json({'error':'Ses kimliği gerekli.'},400)
+                    preview_model=str(data.get('model_id') or row['model'] or 'eleven_flash_v2_5').strip()
+                    if not preview_model or len(preview_model)>100 or not re.fullmatch(r'[A-Za-z0-9_.-]+',preview_model): return self.send_json({'error':'TTS modeli geçersiz.'},400)
+                    payload={'text':text,'model_id':preview_model}
                 elif provider=='deepgram':
                     if not row['model']: return self.send_json({'error':'Deepgram ses modeli gerekli.'},400)
                     if not row['model'].startswith(('flux-','aura-')): return self.send_json({'error':'Deepgram ses denemesi için flux- veya aura- TTS modeli seçin.'},400)
@@ -1310,7 +1722,7 @@ Appointment policy:
                 if len(recent)>=6: return self.send_json({'error':'Bir dakika içinde en fazla 6 deneme yapabilirsiniz.'},429)
                 PROVIDER_LIMITS[s['tenant_id']]=recent+[now()]
             try:
-                body=provider_request(provider,key,row['model'],payload,row['voice_id'])
+                body=provider_request(provider,key,row['model'],payload,preview_voice_id)
                 if is_test:
                     if provider=='elevenlabs': check_elevenlabs_scribe(key)
                     conn.execute('UPDATE provider_settings SET check_status="ok",checked_at=? WHERE provider=?',(now(),provider)); conn.commit()

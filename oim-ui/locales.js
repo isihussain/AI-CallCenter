@@ -206,6 +206,15 @@
         "Google OAuth henüz yapılandırılmadı",
       "Google OAuth yönetici tarafından henüz yapılandırılmadı.":
         "Google OAuth yönetici tarafından henüz yapılandırılmadı.",
+      "Takvim bağlantıları": "Takvim bağlantıları",
+      "Microsoft Outlook Calendar’ı bağla": "Microsoft Outlook Calendar’ı bağla",
+      "Microsoft Outlook Calendar bağlı değil.": "Microsoft Outlook Calendar bağlı değil.",
+      "Microsoft Outlook Calendar bağlı. Dolu saatler korunuyor.":
+        "Microsoft Outlook Calendar bağlı. Dolu saatler korunuyor.",
+      "Microsoft OAuth yönetici tarafından henüz yapılandırılmadı.":
+        "Microsoft OAuth yönetici tarafından henüz yapılandırılmadı.",
+      "Microsoft bağlantısı hazırlanıyor…": "Microsoft bağlantısı hazırlanıyor…",
+      "Microsoft bağlantısı başlatılamadı": "Microsoft bağlantısı başlatılamadı",
       "Gönderen e-posta": "Gönderen e-posta",
       "gpt-realtime": "gpt-realtime",
       "Grup Chat ID": "Grup Chat ID",
@@ -727,6 +736,15 @@
         "Google OAuth is not configured yet",
       "Google OAuth yönetici tarafından henüz yapılandırılmadı.":
         "Google OAuth has not been configured by the administrator.",
+      "Takvim bağlantıları": "Calendar connections",
+      "Microsoft Outlook Calendar’ı bağla": "Connect Microsoft Outlook Calendar",
+      "Microsoft Outlook Calendar bağlı değil.": "Microsoft Outlook Calendar is not connected.",
+      "Microsoft Outlook Calendar bağlı. Dolu saatler korunuyor.":
+        "Microsoft Outlook Calendar connected. Busy times are protected.",
+      "Microsoft OAuth yönetici tarafından henüz yapılandırılmadı.":
+        "Microsoft OAuth has not been configured by the administrator.",
+      "Microsoft bağlantısı hazırlanıyor…": "Preparing Microsoft connection…",
+      "Microsoft bağlantısı başlatılamadı": "Could not start Microsoft connection",
       "Gönderen e-posta": "Sender email",
       "gpt-realtime": "gpt-realtime",
       "Grup Chat ID": "Group Chat ID",
@@ -1244,6 +1262,15 @@
       "Google OAuth henüz yapılandırılmadı": "Google OAuth пока не настроен",
       "Google OAuth yönetici tarafından henüz yapılandırılmadı.":
         "Администратор ещё не настроил Google OAuth.",
+      "Takvim bağlantıları": "Подключения календарей",
+      "Microsoft Outlook Calendar’ı bağla": "Подключить Microsoft Outlook Calendar",
+      "Microsoft Outlook Calendar bağlı değil.": "Microsoft Outlook Calendar не подключён.",
+      "Microsoft Outlook Calendar bağlı. Dolu saatler korunuyor.":
+        "Microsoft Outlook Calendar подключён. Занятое время учитывается.",
+      "Microsoft OAuth yönetici tarafından henüz yapılandırılmadı.":
+        "Администратор ещё не настроил Microsoft OAuth.",
+      "Microsoft bağlantısı hazırlanıyor…": "Подготовка подключения Microsoft…",
+      "Microsoft bağlantısı başlatılamadı": "Не удалось начать подключение Microsoft",
       "Gönderen e-posta": "Почта отправителя",
       "gpt-realtime": "gpt-realtime",
       "Grup Chat ID": "Chat ID группы",

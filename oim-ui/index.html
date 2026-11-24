@@ -21,6 +21,7 @@
     <link rel="stylesheet" href="styles.css?v=20261029-admin" />
     <link rel="stylesheet" href="login.css" />
     <link rel="stylesheet" href="admin-console.css?v=20261029-admin" />
+    <link rel="stylesheet" href="voice-platform.css?v=20261124" />
   </head>
   <body>
     <section
@@ -235,6 +236,17 @@
               Ayarlar</a
             >
           </div>
+          <div class="nav-group" data-admin-only="" hidden>
+            <span class="nav-heading">ELEVENLABS WORKSPACE</span>
+            <a class="nav-item" href="#vp-agents" data-view="vp-agents"><span class="nav-icon"><i class="fa-solid fa-microphone-lines" aria-hidden="true"></i></span>Voice Agents</a>
+            <a class="nav-item" href="#vp-tools" data-view="vp-tools"><span class="nav-icon"><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i></span>Tools</a>
+            <a class="nav-item" href="#vp-calendar" data-view="vp-calendar"><span class="nav-icon"><i class="fa-solid fa-calendar-days" aria-hidden="true"></i></span>Calendar</a>
+            <a class="nav-item" href="#vp-knowledge" data-view="vp-knowledge"><span class="nav-icon"><i class="fa-solid fa-book-open" aria-hidden="true"></i></span>Knowledge Base</a>
+            <a class="nav-item" href="#vp-conversations" data-view="vp-conversations"><span class="nav-icon"><i class="fa-solid fa-comments" aria-hidden="true"></i></span>Conversations</a>
+            <a class="nav-item" href="#vp-integrations" data-view="vp-integrations"><span class="nav-icon"><i class="fa-solid fa-plug" aria-hidden="true"></i></span>Integrations</a>
+            <a class="nav-item" href="#vp-analytics" data-view="vp-analytics"><span class="nav-icon"><i class="fa-solid fa-chart-column" aria-hidden="true"></i></span>Analytics</a>
+            <a class="nav-item" href="#vp-settings" data-view="vp-settings"><span class="nav-icon"><i class="fa-solid fa-sliders" aria-hidden="true"></i></span>Settings</a>
+          </div>
         </nav>
 
         <div class="sidebar-footer">
@@ -329,6 +341,14 @@
                 API bağlantıları
               </option>
               <option value="settings" data-admin-only="">Ayarlar</option>
+              <option value="vp-agents" data-admin-only="">Voice Agents</option>
+              <option value="vp-tools" data-admin-only="">Tools</option>
+              <option value="vp-calendar" data-admin-only="">Calendar</option>
+              <option value="vp-knowledge" data-admin-only="">Knowledge Base</option>
+              <option value="vp-conversations" data-admin-only="">Conversations</option>
+              <option value="vp-integrations" data-admin-only="">ElevenLabs Integration</option>
+              <option value="vp-analytics" data-admin-only="">ElevenLabs Analytics</option>
+              <option value="vp-settings" data-admin-only="">Voice Platform Settings</option>
               <option value="help">Yardım Merkezi</option>
             </select></label
           >
@@ -1207,7 +1227,7 @@ Merhaba, size nasıl yardımcı olabilirim?</textarea
           >
             <div class="panel-heading">
               <div>
-                <h2>Google Calendar</h2>
+                <h2>Takvim bağlantıları</h2>
                 <p>
                   Dolu saatler otomatik kapanır; AI yalnızca uygun zamanlara
                   rezervasyon oluşturur.
@@ -1215,11 +1235,12 @@ Merhaba, size nasıl yardımcı olabilirim?</textarea
               </div>
               <span class="pill success">OAuth güvenli bağlantı</span>
             </div>
-            <button class="button primary" type="button" id="google-connect">
-              Google Calendar’ı bağla</button
-            ><span id="google-status" class="form-note"
-              >Durum kontrol ediliyor…</span
-            >
+            <div class="calendar-connectors">
+              <button class="button primary" type="button" id="google-connect">Google Calendar’ı bağla</button>
+              <span id="google-status" class="form-note">Durum kontrol ediliyor…</span>
+              <button class="button outline" type="button" id="microsoft-connect">Microsoft Outlook Calendar’ı bağla</button>
+              <span id="microsoft-status" class="form-note">Durum kontrol ediliyor…</span>
+            </div>
           </section>
           <section
             class="panel table-panel"
@@ -1513,6 +1534,7 @@ Merhaba, size nasıl yardımcı olabilirim?</textarea
               ><span id="sip-status" class="form-note"></span>
             </form>
           </section>
+          <section id="voice-platform" class="voice-platform" data-view-panel="voice-platform" data-admin-only="" hidden></section>
         </div>
       </main>
     </div>
@@ -1524,5 +1546,6 @@ Merhaba, size nasıl yardımcı olabilirim?</textarea
     <script src="app.js?v=20261029-admin"></script>
     <script src="operations.js?v=20261029-admin"></script>
     <script src="admin-console.js?v=20261116-provider-speech"></script>
+    <script src="voice-platform.js?v=20261124"></script>
   </body>
 </html>

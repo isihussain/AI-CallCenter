@@ -12,6 +12,7 @@ import types
 import unittest
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 spec = importlib.util.spec_from_file_location("api_test_backend", Path(__file__).resolve().parents[1] / "backend.py")
 backend = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(backend)
@@ -34,6 +35,7 @@ class ApiTestCase(unittest.TestCase):
         backend.SESSIONS.clear()
         backend.LOGIN_ATTEMPTS.clear()
         backend.PROVIDER_LIMITS.clear()
+        backend.VOICE_PLATFORM_LIMITS.clear()
         self.external_calls = patch.object(backend.urllib.request, "urlopen", side_effect=AssertionError("External provider calls are forbidden in API tests"))
         self.external_calls.start()
         self.addCleanup(self.external_calls.stop)

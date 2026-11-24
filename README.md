@@ -30,6 +30,7 @@ These screenshots use synthetic accounts and calls in a local demo. The dashboar
 - **Voice agent settings:** editable first greeting, voice selection, and working-hours text. New calls use the saved greeting.
 - **Realtime call handling:** OpenAI Realtime API integration, audio-first opening greeting, transcript capture, usage accounting, and call status updates.
 - **Provider previews:** separate encrypted settings and connection checks for OpenAI, ElevenLabs, and Deepgram, with ElevenLabs and Turkish Deepgram Flux speech previews in the administrator panel.
+- **ElevenLabs voice workspace:** administrator screens for provider agents, JSON configuration and conflict-aware sync, tools, tenant calendars, knowledge documents, conversations, analytics, signed live browser tests, and post-call imports.
 - **Business knowledge:** publishable Markdown articles in Turkish, English, and Russian, with retrieval support for the voice agent.
 - **Appointments:** voice-agent booking flow, SQLite appointment records, and optional Google Calendar availability checks and event creation.
 - **Call history and reports:** server-side UTC date, status, and caller filters; stable pagination; summaries over all matching calls; CSV export across every matching page.
@@ -38,6 +39,8 @@ These screenshots use synthetic accounts and calls in a local demo. The dashboar
 - **Web dashboard:** responsive customer and administrator views, a mobile section selector, and persistent Turkish, English, and Russian interface preferences.
 - **Container installation:** a same-origin HTTPS frontend and an unprivileged API, with persistent database and encryption-key storage.
 - **Automated checks:** Python API and tenant-isolation tests, dashboard tests, and a disposable HTTPS Compose smoke check in GitHub Actions.
+
+The ElevenLabs workspace uses the provider's real API and account permissions. Calendar rules and appointments are tenant-scoped in OIM. Google Calendar and Microsoft Outlook use per-customer OAuth connections; Outlook requires an Entra application configured in the private server environment. See the [ElevenLabs integration guide](docs/ELEVENLABS_INTEGRATION.md), [agent configuration](docs/AGENT_CONFIGURATION.md), [tools system](docs/TOOLS_SYSTEM.md), [calendar engine](docs/CALENDAR_ENGINE.md), [API reference](docs/API_REFERENCE.md), [security notes](docs/SECURITY.md), and [testing guide](docs/TESTING.md) for setup and supported operations.
 
 The telephone path depends on your SIP provider and PBX. This repository does not include production SIP credentials, carrier configuration, server logs, customer exports, or a ready-made root-level PBX provisioning program.
 
@@ -196,7 +199,7 @@ Customers can configure transcript retention from their dashboard. Configure the
 
 ## Tests
 
-Install the Python dependencies, then run the API and voice-opening regression tests from the repository root:
+Install the Python dependencies, then run the API, calendar, ElevenLabs, and voice-opening regression tests from the repository root:
 
 ```bash
 python -m unittest discover -s oim-mvp/tests -v
@@ -236,14 +239,18 @@ The smoke check creates its own disposable stack, signs in with synthetic creden
 
 ```text
 oim-mvp/backend.py                 Python API, SQLite schema, integrations, Realtime handling
+oim-mvp/calendar_engine.py         Tenant calendar rules, availability, alternatives, and booking transactions
+oim-mvp/voice_platform.py          ElevenLabs API, webhook, knowledge, tool, and agent operations
 oim-mvp/purge_transcripts.py       Scheduled transcript-retention cleanup entry point
-oim-mvp/tests/                     API, tenant-isolation, operations, and voice-opening tests
+oim-mvp/tests/                     API, tenant isolation, calendar, ElevenLabs, and voice-opening tests
 oim-ui/index.html                  Login and dashboard markup
 oim-ui/app.js                      Dashboard behavior and API calls
 oim-ui/call-history.js             Filters, pagination, reviews, quality signals, and reports
 oim-ui/operations.js               Readiness, monitoring, callbacks, usage, and retention panels
 oim-ui/admin-console.js            Admin provider forms, AI/voice previews, and system-flow map
 oim-ui/admin-console.css           Responsive admin connection and workflow styling
+oim-ui/voice-platform.js            ElevenLabs workspace, agent controls, live tests, and calendar UI
+oim-ui/voice-platform.css           Responsive ElevenLabs workspace styling
 oim-ui/i18n.js                     Browser language selection and text bindings
 oim-ui/locales.js                  Turkish, English, and Russian message catalog
 oim-ui/tests/                      Dashboard regression tests
@@ -252,7 +259,7 @@ oim-ui/login.css                   Login styling
 oim-ui/help.html                   Generic deployment help
 oim-ui/knowledge-*.md              Knowledge prompt and language templates
 deploy/                            Example systemd and Nginx configuration
-docs/                              Container, API, operations, language guides, and synthetic screenshots
+docs/                              ElevenLabs, calendar, tools, security, API, container, operations, and language guides
 scripts/                           Development certificate and Compose smoke check
 Dockerfile / Dockerfile.web         API and frontend images
 compose.yaml                       Persistent same-origin HTTPS stack
