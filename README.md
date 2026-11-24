@@ -172,11 +172,11 @@ Other integrations are configured in the dashboard: Telegram bot token and chat,
 4. In the administrator dashboard, create a customer and enter the correct SIP credentials for that tenant. The voice agent reads its configured greeting immediately when the Realtime sideband connects, even if the caller has not spoken yet.
 5. Test with a controlled test trunk and a non-production customer account before routing public calls.
 
-The SIP settings endpoint invokes `/usr/bin/sudo /usr/local/sbin/oim-apply-sip` after saving credentials. That privileged helper is **not included** in this repository because PBX file paths, dial plan, carrier registration, and firewall rules are specific to each operator. Until you install and review your own root-owned helper and narrowly scoped sudoers rule, the SIP settings cannot be applied to Asterisk from the panel. Never permit the web service to run arbitrary commands as root.
+When `OIM_PBX_CONFIG_URL` is set, the SIP settings endpoint sends validated account data to the private `pbx-control` service. That service writes only the managed OIM PJSIP and dialplan sections, then requests fixed reload commands through an internal Asterisk AMI account. It does not mount the Docker socket or expose AMI to the host. Without this setting, deployments may keep using their existing `/usr/local/sbin/oim-apply-sip` helper.
 
 ## ElevenLabs Scribe and Asterisk AudioSocket
 
-The optional OIM bridge routes raw Asterisk call audio to ElevenLabs Scribe v3 Live for Turkish, Russian, and English STT. OpenAI AI produces text replies and calls the same tenant-scoped knowledge, appointment, and callback tools. ElevenLabs TTS speaks replies in the configured Voice ID. OpenAI Realtime SIP remains available as the existing route and rollback option. Follow the [Asterisk bridge setup](docs/elevenlabs-asterisk-bridge.md) for the AGI script, shared-secret file, dialplan context, and FreePBX Custom Destination. The backend does not change inbound DID routes automatically.
+The OIM bridge routes raw Asterisk call audio to ElevenLabs Scribe v3 Live for Turkish, Russian, and English STT. OpenAI AI produces text replies and calls the same tenant-scoped knowledge, appointment, and callback tools. ElevenLabs TTS speaks replies in the configured Voice ID. OpenAI Realtime SIP remains available as a fallback route. The optional [Docker telephony deployment](docs/docker-telephony.md) runs FreePBX, Kamailio, MariaDB, and the restricted PBX control service alongside the application. It documents the signaling/media ports, private admin access, and bridge route.
 
 ## Dashboard languages and call reports
 

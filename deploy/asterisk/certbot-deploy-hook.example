@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+# Set this to the protected checkout directory on the PBX host.
+PROJECT_DIR=${OIM_PROJECT_DIR:-/opt/ai-call-center}
+ENV_FILE="$PROJECT_DIR/.env"
+
+read_env_value() {
+    awk -F= -v key="$1" '$1 == key {sub(/^[^=]*=/, ""); value=$0} END {print value}' "$ENV_FILE"
+}
+
+PBX_TLS_DOMAIN=$(read_env_value PBX_TLS_DOMAIN)
+PBX_RUNTIME_DIR=$(read_env_value PBX_RUNTIME_DIR)
+if [ -z "$PBX_TLS_DOMAIN" ] || [ -z "$PBX_RUNTIME_DIR" ]; then
+    exit 1
+fi
+case "$PBX_RUNTIME_DIR" in
+    /*) ;;
+    *) PBX_RUNTIME_DIR="$PROJECT_DIR/$PBX_RUNTIME_DIR" ;;
+esac
+
+case " ${RENEWED_DOMAINS:-} " in
+    *" $PBX_TLS_DOMAIN "*) ;;
+    *) exit 0 ;;
+esac
+
+install -d -o root -g root -m 0755 "$PBX_RUNTIME_DIR/tls" "$PBX_RUNTIME_DIR/kamailio/tls"
+install -o root -g root -m 0644 "$RENEWED_LINEAGE/fullchain.pem" "$PBX_RUNTIME_DIR/tls/fullchain.pem"
+install -o root -g 2600 -m 0640 "$RENEWED_LINEAGE/privkey.pem" "$PBX_RUNTIME_DIR/tls/privkey.pem"
+install -o root -g root -m 0644 "$RENEWED_LINEAGE/fullchain.pem" "$PBX_RUNTIME_DIR/kamailio/tls/fullchain.pem"
+install -o root -g 2601 -m 0640 "$RENEWED_LINEAGE/privkey.pem" "$PBX_RUNTIME_DIR/kamailio/tls/privkey.pem"
+
+docker exec oim-freepbx fwconsole certificates --updateall
+docker exec oim-freepbx asterisk -rx 'module reload res_pjsip.so'
+docker restart oim-kamailio

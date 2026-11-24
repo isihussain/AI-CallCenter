@@ -7,6 +7,7 @@ deploy/docker/tls/
 tls/
 private-backup/
 backups/
+runtime/
 .artifacts/
 node_modules/
 *.secret
@@ -35,6 +36,7 @@ venv/
 *.tgz
 *.tar.gz
 *.zip
+*.sql
 tmp/
 temp/
 

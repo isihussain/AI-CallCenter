@@ -1,0 +1,16 @@
+[Unit]
+Description=Forward the OIM RTP range to the PBX container
+Requires=docker.service
+After=docker.service network-online.target
+PartOf=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/etc/default/oim-pbx-rtp-forwarding
+ExecStart=/usr/local/sbin/oim-pbx-rtp-forwarding start
+ExecStop=/usr/local/sbin/oim-pbx-rtp-forwarding stop
+
+[Install]
+WantedBy=multi-user.target

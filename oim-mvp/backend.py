@@ -158,6 +158,20 @@ def public_provider(row):
     key = reveal(row['api_key'])
     return {'provider':row['provider'],'model':row['model'],'enabled':bool(row['enabled']),'configured':bool(key),'masked':'••••••••' if key else '', 'voice_id':row['voice_id'],'check_status':row['check_status'],'checked_at':row['checked_at']}
 
+def apply_sip_configuration(entries):
+    endpoint=os.environ.get('OIM_PBX_CONFIG_URL','').strip()
+    if not endpoint:
+        subprocess.run(['/usr/bin/sudo','/usr/local/sbin/oim-apply-sip'],input=json.dumps({'entries':entries}),text=True,capture_output=True,timeout=60,check=True)
+        return
+    secret=os.environ.get('OIM_PBX_CONTROL_SECRET','').strip()
+    if not secret:
+        raise RuntimeError('PBX control secret is required')
+    request=urllib.request.Request(endpoint,data=json.dumps({'entries':entries}).encode(),headers={'Content-Type':'application/json','X-OIM-PBX-Control-Secret':secret},method='POST')
+    with urllib.request.urlopen(request,timeout=65) as response:
+        result=json.loads(response.read(8192))
+    if not result.get('applied'):
+        raise RuntimeError('PBX control rejected SIP configuration')
+
 PROVIDER_IDS = {'openai','openai_ai','elevenlabs','deepgram'}
 PROVIDER_LIMITS = {}
 PROVIDER_LOCK = threading.Lock()
@@ -1457,9 +1471,9 @@ Appointment policy:
             try:
                 sip_rows=conn.execute('SELECT tenant_id,username,did,domain,password FROM tenant_sip ORDER BY tenant_id').fetchall()
                 entries=[{'tenant_id':x['tenant_id'],'username':x['username'],'did':x['did'],'domain':x['domain'],'password':reveal(x['password'])} for x in sip_rows if reveal(x['password'])]
-                subprocess.run(['/usr/bin/sudo','/usr/local/sbin/oim-apply-sip'],input=json.dumps({'entries':entries}),text=True,capture_output=True,timeout=20,check=True)
+                apply_sip_configuration(entries)
             except Exception as exc:
-                print('SIP apply error',repr(exc),flush=True)
+                print('SIP apply error',type(exc).__name__,flush=True)
                 return self.send_json({'error':'SIP bilgisi kaydedildi ancak PBX uygulaması başarısız oldu'},502)
             return self.send_json({'tenant_id':tid,'configured':bool(password),'applied':True,'username':username,'did':did,'domain':domain,'masked':('••••'+password[-4:] if len(password)>4 else '')})
         self.send_json({'error':'Bulunamadı'},404)

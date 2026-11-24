@@ -1,0 +1,148 @@
+services:
+  api:
+    environment:
+      OIM_AUDIOSOCKET_ENABLED: "${OIM_AUDIOSOCKET_ENABLED:-0}"
+      OIM_AUDIOSOCKET_HOST: "${PBX_API_BIND_ADDRESS:-172.19.0.13}"
+      OIM_AUDIOSOCKET_PORT: "9019"
+      OIM_PBX_CONFIG_URL: "http://pbx-control:9018/apply-sip"
+      OIM_PBX_CONTROL_SECRET: "${OIM_PBX_CONTROL_SECRET:?Set OIM_PBX_CONTROL_SECRET in the private .env}"
+    group_add:
+      - "2600"
+    networks:
+      default: {}
+      pbx:
+        ipv4_address: 172.19.0.13
+
+  freepbx:
+    image: "${FREEPBX_IMAGE:-savagecore/freepbx:latest}"
+    container_name: oim-freepbx
+    restart: unless-stopped
+    depends_on:
+      pbx-db:
+        condition: service_healthy
+    environment:
+      DB_EMBEDDED: "FALSE"
+      DB_HOST: pbx-db
+      DB_PORT: "3306"
+      DB_NAME: asterisk
+      DB_USER: asterisk
+      DB_PASS: "${PBX_DB_PASSWORD:?Set PBX_DB_PASSWORD in the private .env}"
+      RTP_START: "10000"
+      RTP_FINISH: "20000"
+      ENABLE_FAIL2BAN: "TRUE"
+      ENABLE_SSL: "FALSE"
+      ASTERISK_TLS_SYNC: "TRUE"
+      TLS_CERT: fullchain.pem
+      TLS_KEY: privkey.pem
+      UCP_FIRST: "FALSE"
+    group_add:
+      - "2600"
+    ports:
+      - "127.0.0.1:18445:80/tcp"
+      - "5060:5060/udp"
+      - "5062:5062/tcp"
+    volumes:
+      - "${PBX_RUNTIME_DIR:-./runtime/pbx}/freepbx:/data"
+      - recordings:/data/var/spool/asterisk/monitor/oim
+      - "${PBX_RUNTIME_DIR:-./runtime/pbx}/tls:/certs:ro"
+      - "${PBX_RUNTIME_DIR:-./runtime/pbx}/bridge/pbx-bridge.env:/etc/oim/pbx-bridge.env:ro"
+    cap_add:
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "asterisk -rx 'core show uptime' >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 3m
+      retries: 12
+    networks:
+      pbx:
+        ipv4_address: 172.19.0.10
+
+  kamailio:
+    build:
+      context: ./deploy/kamailio
+    container_name: oim-kamailio
+    restart: unless-stopped
+    ports:
+      - "5061:5061/tcp"
+    volumes:
+      - "${PBX_RUNTIME_DIR:-./runtime/pbx}/kamailio:/etc/kamailio:ro"
+    group_add:
+      - "2601"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 6
+    networks:
+      pbx:
+        ipv4_address: 172.19.0.11
+
+  pbx-control:
+    build:
+      context: ./deploy/pbx-control
+    container_name: oim-pbx-control
+    restart: unless-stopped
+    depends_on:
+      freepbx:
+        condition: service_healthy
+    environment:
+      PBX_CONFIG_DIR: /pbx
+      PBX_AMI_HOST: freepbx
+      PBX_AMI_PORT: "5038"
+      PBX_AMI_USERNAME: "${PBX_AMI_USERNAME:-oim-control}"
+      PBX_AMI_PASSWORD: "${PBX_AMI_PASSWORD:?Set PBX_AMI_PASSWORD in the private .env}"
+      OIM_SIP_TARGET: "${OIM_SIP_TARGET:-oim-ai}"
+      OIM_PBX_CONTROL_SECRET: "${OIM_PBX_CONTROL_SECRET:?Set OIM_PBX_CONTROL_SECRET in the private .env}"
+    volumes:
+      - "${PBX_RUNTIME_DIR:-./runtime/pbx}/freepbx/etc/asterisk:/pbx:rw"
+    read_only: true
+    tmpfs:
+      - /tmp
+    user: "2600:2600"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      pbx:
+        ipv4_address: 172.19.0.12
+
+  pbx-db:
+    image: "${PBX_DATABASE_IMAGE:-mariadb:10.11}"
+    container_name: oim-pbx-db
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: asterisk
+      MARIADB_USER: asterisk
+      MARIADB_PASSWORD: "${PBX_DB_PASSWORD:?Set PBX_DB_PASSWORD in the private .env}"
+      MARIADB_ROOT_PASSWORD: "${PBX_DB_ROOT_PASSWORD:?Set PBX_DB_ROOT_PASSWORD in the private .env}"
+    volumes:
+      - pbx-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      pbx:
+        ipv4_address: 172.19.0.14
+
+networks:
+  default:
+    name: "${OIM_APP_NETWORK:-oim-call-center-prod_default}"
+    external: true
+  pbx:
+    name: "${PBX_NETWORK_NAME:-oim-pbx}"
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "${PBX_NETWORK_SUBNET:-172.19.0.0/24}"
+
+volumes:
+  pbx-db:

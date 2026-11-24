@@ -7,7 +7,7 @@ The live transcription session is restricted to Turkish, Russian, and English an
 ## Requirements
 
 - Asterisk 18 or newer with the `AudioSocket()` dialplan application loaded.
-- OIM and Asterisk on the same host for the default loopback listener. If they run on separate hosts, use a private network address, restrict TCP port `9019` to the PBX, and change both listener and dialplan addresses.
+- OIM and Asterisk on the same host or a private network. In the Docker telephony deployment, bind the listener to the OIM API address on the private Compose network and use `api:9019` from Asterisk. Do not publish TCP `9019` on the host.
 - An enabled ElevenLabs provider with a valid API key and a voice ID that supports Turkish, Russian, and English. The provider's model field is used for speech synthesis; `eleven_flash_v2_5` is the default when it is blank.
 - An enabled OpenAI AI connection with a model that supports chat completions and function tools, or a configured OpenAI Realtime key/environment fallback. The fallback uses `gpt-4.1-mini` for text responses.
 - A tenant SIP record whose **DID** or SIP username matches the number Asterisk passes from `${FROM_DID}`.
@@ -18,7 +18,7 @@ Create a random shared secret and store it in the protected OIM service environm
 
 ```text
 OIM_AUDIOSOCKET_ENABLED=1
-OIM_AUDIOSOCKET_HOST=127.0.0.1
+OIM_AUDIOSOCKET_HOST=<private-OIM-address>
 OIM_AUDIOSOCKET_PORT=9019
 OIM_PBX_SHARED_SECRET=<same-random-secret-as-the-AGI-config>
 ```
@@ -29,9 +29,10 @@ Save the same secret for the Asterisk AGI script in `/etc/oim/pbx-bridge.env`, o
 
 ```text
 OIM_PBX_SHARED_SECRET=<same-random-secret-as-the-OIM-service>
+OIM_API_ENDPOINT=http://api:8787/api/pbx/bridge-calls
 ```
 
-The AGI script sends the secret only to OIM over loopback. The registration endpoint resolves the tenant from the called DID; it does not accept a tenant ID from Asterisk. It checks provider configuration, account status, and minimum call credit before registering the AudioSocket UUID.
+The AGI script sends the secret only to OIM over the private container network. The registration endpoint resolves the tenant from the called DID; it does not accept a tenant ID from Asterisk. It checks provider configuration, account status, and minimum call credit before registering the AudioSocket UUID.
 
 ## Install the AGI and dialplan context
 
@@ -47,9 +48,9 @@ Reload the FreePBX dialplan. In FreePBX, create a **Custom Destination** with ta
 oim-elevenlabs-bridge,s,1
 ```
 
-Assign that custom destination to the inbound route for the DID you want to migrate. The context uses `${FROM_DID}` to resolve the OIM tenant. Check that this variable contains the full called DID on your trunk. Keep the previous OpenAI Realtime destination available so the route can be switched back quickly.
+Assign that custom destination to the inbound route only if the carrier route does not already enter the OIM `from-verimor` context. In the Docker deployment, set `OIM_SIP_TARGET=oim-elevenlabs-bridge`; the private PBX control service applies that target when the SIP settings are saved. The context uses the full called DID to resolve the OIM tenant. Keep the previous OpenAI Realtime destination available so the route can be switched back quickly.
 
-The sample context answers the call and starts `AudioSocket()` on loopback port `9019`. It does not change other inbound routes or rewrite SIP accounts.
+The sample context answers the call and starts `AudioSocket()` at `api:9019` on the private Compose network. If call registration fails before answering, it sends the call to the existing `oim-ai` Realtime context.
 
 ## Configure the panel and confirm readiness
 

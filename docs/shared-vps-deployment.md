@@ -102,4 +102,4 @@ Do not use `docker compose down --volumes`, `docker system prune`, or global fir
 
 ## Asterisk and ElevenLabs bridge
 
-The base Compose stack leaves the ElevenLabs AudioSocket bridge disabled and does not publish its TCP listener or the API to the host. Do not enable the bridge by changing only the environment file. If Asterisk will run on this VPS, first map the host and container paths, choose unused local ports, then add a deployment-specific Compose override and dialplan configuration. Preserve the existing Asterisk routes until the ElevenLabs key and the new path have passed a controlled call test.
+The base Compose stack leaves the ElevenLabs AudioSocket bridge disabled and does not publish its TCP listener or the API to the host. For a same-host Docker PBX, use the separately reviewed [telephony Compose deployment](docker-telephony.md), which publishes only the documented SIP/TLS/RTP ports and keeps the control API and AudioSocket listener on the private Compose network. Keep the existing inbound route until the provider checks and an approved controlled call test pass.
