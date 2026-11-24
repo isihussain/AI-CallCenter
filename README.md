@@ -127,6 +127,8 @@ The new database starts with no customer accounts. Sign in as the administrator 
 
 ## Linux production deployment
 
+For an existing VPS that runs other projects, use the isolated [shared VPS Docker Compose guide](docs/shared-vps-deployment.md). It keeps the app on a dedicated Compose project and uses a loopback-only web port behind an additive reverse-proxy site.
+
 The following is a deployment outline for a new Ubuntu or Debian host. Adjust account names, paths, access groups, domain, firewall, and TLS to match your environment.
 
 1. Install Python, Git, Nginx, and system utilities using your operating system's package manager. Create a dedicated unprivileged service account and directories for the application, database, secret key, and recordings.
