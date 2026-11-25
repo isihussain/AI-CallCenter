@@ -88,6 +88,15 @@ class ProviderConsoleTests(ApiTestCase):
         saved=next(item for item in self.get('/api/admin/providers',tenant=1)['items'] if item['provider']=='elevenlabs')
         self.assertEqual(saved['check_status'],'ok')
 
+    def test_elevenlabs_billing_error_reaches_the_admin_provider_check(self):
+        self.save('elevenlabs',voice_id='synthetic-voice',model='eleven_flash_v2_5')
+        with patch.object(backend.voice_platform,'check_phone_capabilities',side_effect=backend.voice_platform.ProviderError(400,'ElevenLabs requires available credits or payment for this speech request.')):
+            status,data,_=self.request('POST','/api/admin/providers/test',{'provider':'elevenlabs'},tenant=1)
+        self.assertEqual(status,502)
+        self.assertIn('credits or payment',data['error'])
+        saved=next(item for item in self.get('/api/admin/providers',tenant=1)['items'] if item['provider']=='elevenlabs')
+        self.assertEqual(saved['check_status'],'error')
+
     def test_phone_capability_check_uses_scribe_and_streaming_tts(self):
         with patch.object(backend.voice_platform,'_check_scribe_live') as scribe, \
              patch.object(backend.voice_platform,'provider_request',return_value={'content_type':'audio/basic','size':160}) as tts:

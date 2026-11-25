@@ -1719,7 +1719,7 @@ Appointment policy:
             except (ValueError,OSError,TypeError,AttributeError,voice_platform.ProviderError) as error:
                 if is_test:
                     conn.execute('UPDATE provider_settings SET check_status="error",checked_at=? WHERE provider=?',(now(),provider)); conn.commit()
-                message=str(error) if isinstance(error,ValueError) and not isinstance(error,json.JSONDecodeError) else 'Sağlayıcı yanıtı okunamadı.'
+                message=str(error) if isinstance(error,(ValueError,voice_platform.ProviderError)) and not isinstance(error,json.JSONDecodeError) else 'Sağlayıcı yanıtı okunamadı.'
                 return self.send_json({'ok':False,'error':message},502)
         if path == '/api/admin/tenants':
             if s['role']!='admin': return self.send_json({'error':'Yetki yok'},403)
