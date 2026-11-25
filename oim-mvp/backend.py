@@ -248,28 +248,6 @@ def elevenlabs_bridge_config():
         return '','',''
     return key,row['voice_id'],(row['model'] or '').strip() or 'eleven_flash_v2_5'
 
-def check_elevenlabs_scribe(key):
-    import websockets
-    try:
-        from elevenlabs_bridge import scribe_url
-    except ModuleNotFoundError:
-        path=os.path.join(os.path.dirname(__file__),'elevenlabs_bridge.py')
-        spec=importlib.util.spec_from_file_location('oim_elevenlabs_bridge',path)
-        module=importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        scribe_url=module.scribe_url
-    async def check():
-        async with websockets.connect(scribe_url(),extra_headers={'xi-api-key':key},ping_interval=None,close_timeout=2,max_size=1024*1024) as ws:
-            event=json.loads(await asyncio.wait_for(ws.recv(),timeout=10))
-            if event.get('message_type')!='session_started':
-                raise ValueError('ElevenLabs Scribe oturumu başlatılamadı.')
-    try:
-        asyncio.run(check())
-    except ValueError:
-        raise
-    except Exception:
-        raise ValueError('ElevenLabs Scribe erişimi doğrulanamadı.') from None
-
 def bridge_opening_greeting(tenant_id):
     conn=db()
     try:
@@ -1722,9 +1700,12 @@ Appointment policy:
                 if len(recent)>=6: return self.send_json({'error':'Bir dakika içinde en fazla 6 deneme yapabilirsiniz.'},429)
                 PROVIDER_LIMITS[s['tenant_id']]=recent+[now()]
             try:
-                body=provider_request(provider,key,row['model'],payload,preview_voice_id)
+                if is_test and provider=='elevenlabs':
+                    voice_platform.check_phone_capabilities(key,preview_voice_id,row['model'])
+                    body=b'phone-capabilities-checked'
+                else:
+                    body=provider_request(provider,key,row['model'],payload,preview_voice_id)
                 if is_test:
-                    if provider=='elevenlabs': check_elevenlabs_scribe(key)
                     conn.execute('UPDATE provider_settings SET check_status="ok",checked_at=? WHERE provider=?',(now(),provider)); conn.commit()
                     return self.send_json({'ok':True,'provider':provider,'message':'Bağlantı başarılı'})
                 if provider in {'elevenlabs','deepgram'}:
@@ -1735,7 +1716,7 @@ Appointment policy:
                 output='\n'.join(part.get('text','') for item in result.get('output',[]) if item.get('type')=='message' for part in item.get('content',[]) if part.get('type')=='output_text')
                 if not output: raise ValueError('Sağlayıcı metin döndürmedi.')
                 return self.send_json({'ok':True,'text':output})
-            except (ValueError,OSError,TypeError,AttributeError) as error:
+            except (ValueError,OSError,TypeError,AttributeError,voice_platform.ProviderError) as error:
                 if is_test:
                     conn.execute('UPDATE provider_settings SET check_status="error",checked_at=? WHERE provider=?',(now(),provider)); conn.commit()
                 message=str(error) if isinstance(error,ValueError) and not isinstance(error,json.JSONDecodeError) else 'Sağlayıcı yanıtı okunamadı.'

@@ -84,7 +84,13 @@ class CalendarEngineTests(ApiTestCase):
         self.assertEqual(starts, ["11:30", "12:30"])
 
     def test_fully_booked_day_returns_next_open_day(self):
+        hours = dict(self.config["business_hours"])
+        hours["sat"] = []
+        hours["sun"] = []
+        config = dict(self.config, business_hours=hours)
         with closing(backend.db()) as conn:
+            conn.execute("UPDATE calendar_settings SET config_json=? WHERE tenant_id=2", (json.dumps(calendar_engine.validate_settings(config)),))
+            conn.commit()
             for hour in range(9, 17):
                 self.book(conn, self.start(hour=hour), f"full-day-{hour}")
             result = calendar_engine.alternatives(conn, 2, self.start(hour=12))
@@ -283,8 +289,16 @@ class VoicePlatformApiTests(ApiTestCase):
         self.assertEqual(self.request("GET", route.replace("view=day", "view=year"), tenant=1)[0], 400)
 
     def save_key(self):
-        status, data, _ = self.request("POST", "/api/admin/providers", {"provider": "elevenlabs", "api_key": "synthetic-elevenlabs-key", "model": "eleven_flash_v2_5", "enabled": True}, tenant=1)
+        status, data, _ = self.request("POST", "/api/admin/providers", {"provider": "elevenlabs", "api_key": "synthetic-elevenlabs-key", "model": "eleven_flash_v2_5", "voice_id": "synthetic-voice", "enabled": True}, tenant=1)
         self.assertEqual(status, 200, data)
+
+    def test_connection_test_checks_phone_capabilities_without_user_read(self):
+        self.save_key()
+        with patch.object(voice_platform, "check_phone_capabilities", return_value={"scribe": True, "speech": True}) as check:
+            status, data, _ = self.request("POST", "/api/admin/voice-platform/connection-test", {}, tenant=1)
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["capabilities"], {"scribe": True, "speech": True})
+        check.assert_called_once_with("synthetic-elevenlabs-key", "synthetic-voice", "eleven_flash_v2_5")
 
     def test_signed_url_is_admin_only_uses_server_key_and_never_returns_it(self):
         route = "/api/admin/voice-platform/conversation-signed-url?agent_id=agent_synthetic_123"
