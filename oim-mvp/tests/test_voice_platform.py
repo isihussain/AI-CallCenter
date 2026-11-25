@@ -273,6 +273,15 @@ class CalendarEngineTests(ApiTestCase):
 
 
 class VoicePlatformApiTests(ApiTestCase):
+    def test_elevenlabs_402_explains_credit_requirement_without_exposing_response(self):
+        error = backend.urllib.error.HTTPError("https://api.elevenlabs.io", 402, "payment_required", {}, io.BytesIO(b'{"detail":{"status":"insufficient_credits"}}'))
+        with patch.object(backend.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(voice_platform.ProviderError) as raised:
+                voice_platform.provider_request("synthetic-elevenlabs-key", "POST", "/v1/text-to-speech/synthetic-voice/stream", {"text": "Hello."})
+        self.assertEqual(raised.exception.status, 400)
+        self.assertIn("credits or payment", str(raised.exception))
+        self.assertNotIn("synthetic-elevenlabs-key", str(raised.exception))
+
     def test_calendar_day_week_month_views_are_admin_scoped_and_validate_filters(self):
         route = "/api/admin/voice-platform/calendar/appointments?tenant_id=2&date=2026-10-29&view=day"
         self.assertEqual(self.request("GET", route, tenant=2)[0], 403)

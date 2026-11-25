@@ -56,7 +56,14 @@ def provider_request(api_key, method, path, payload=None, query=None, timeout=25
             error.close()
         except Exception:
             pass
-        message = "ElevenLabs is temporarily unavailable." if error.code >= 500 else f"ElevenLabs rejected the request (HTTP {error.code}). Check the resource configuration and API-key permissions."
+        if error.code == 402:
+            message = "ElevenLabs requires available credits or payment for this speech request."
+        elif error.code == 403:
+            message = "ElevenLabs denied this request. Check API-key permissions and plan access."
+        elif error.code >= 500:
+            message = "ElevenLabs is temporarily unavailable."
+        else:
+            message = f"ElevenLabs rejected the request (HTTP {error.code}). Check the resource configuration."
         raise ProviderError(502 if error.code >= 500 else 400, message) from None
     except (TimeoutError, OSError, urllib.error.URLError):
         raise ProviderError(502, "ElevenLabs could not be reached.") from None

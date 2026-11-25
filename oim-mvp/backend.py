@@ -461,7 +461,7 @@ def provider_request(provider, key, model='', payload=None, voice_id=''):
     except urllib.error.HTTPError as error:
         code=error.code
         error.close()
-        messages={401:'API anahtarı geçersiz.',403:'Bu anahtarın işlem izni yok.',404:'Model veya ses kimliği bulunamadı.',429:'Sağlayıcı kotası veya istek sınırı aşıldı.'}
+        messages={401:'API anahtarı geçersiz.',402:'ElevenLabs ses üretimi için yeterli kredi veya ödeme gerekiyor.',403:'Bu anahtarın işlem izni yok veya plan bu özelliği kapsamıyor.',404:'Model veya ses kimliği bulunamadı.',429:'Sağlayıcı kotası veya istek sınırı aşıldı.'}
         raise ValueError(messages.get(code,'Sağlayıcı isteği tamamlayamadı.')) from None
     except (OSError,TimeoutError): raise ValueError('Sağlayıcıya bağlanılamadı. Yeniden deneyin.') from None
 

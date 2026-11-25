@@ -55,6 +55,7 @@ The sample context answers the call and starts `AudioSocket()` at `api:9019` on 
 ## Configure the panel and confirm readiness
 
 1. In **API connections**, save and enable the ElevenLabs key and Voice ID. Select **Check connection**; this opens a Scribe v3 Live session and requests a short, billable speech sample from the selected voice. The check validates the phone bridge's STT and TTS permissions without requiring account-profile access.
+   - An HTTP 402 means the ElevenLabs account needs credits or payment for speech generation. Changing API-key permissions does not resolve that billing response.
 2. Enable an OpenAI AI model suitable for function calling, or keep the existing OpenAI Realtime key enabled for the text-engine fallback.
 3. Open **API connections** and confirm the AudioSocket listener reports ready. This confirms OIM settings and credentials; it cannot confirm the FreePBX inbound route.
 4. Place one controlled call to the migrated DID. Confirm the opening greeting, Turkish/Russian/English recognition, a knowledge-base answer, and one appointment or callback action.
