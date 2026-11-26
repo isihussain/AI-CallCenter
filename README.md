@@ -179,7 +179,7 @@ When `OIM_PBX_CONFIG_URL` is set, the SIP settings endpoint sends validated acco
 
 ## ElevenLabs Scribe and Asterisk AudioSocket
 
-The OIM bridge routes raw Asterisk call audio to ElevenLabs Scribe v3 Live for Turkish, Russian, and English STT. OpenAI AI produces text replies and calls the same tenant-scoped knowledge, appointment, and callback tools. ElevenLabs TTS speaks replies in the configured Voice ID. OpenAI Realtime SIP remains available as a fallback route. The optional [Docker telephony deployment](docs/docker-telephony.md) runs FreePBX, Kamailio, MariaDB, and the restricted PBX control service alongside the application. It documents the signaling/media ports, private admin access, and bridge route.
+The OIM bridge routes raw Asterisk call audio to ElevenLabs Scribe v3 Live for Turkish, Russian, and English STT. OpenAI AI produces text replies and calls the same tenant-scoped knowledge, appointment, and callback tools. ElevenLabs TTS speaks replies in the configured Voice ID. The administrator's ElevenLabs connection check tests Scribe STT only; use **Try & listen** or a controlled phone call to check speech output separately. OpenAI Realtime SIP remains available as a fallback route. The optional [Docker telephony deployment](docs/docker-telephony.md) runs FreePBX, Kamailio, MariaDB, and the restricted PBX control service alongside the application. It documents the signaling/media ports, private admin access, and bridge route.
 
 ## Dashboard languages and call reports
 

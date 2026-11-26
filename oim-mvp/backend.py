@@ -1701,13 +1701,16 @@ Appointment policy:
                 PROVIDER_LIMITS[s['tenant_id']]=recent+[now()]
             try:
                 if is_test and provider=='elevenlabs':
-                    voice_platform.check_phone_capabilities(key,preview_voice_id,row['model'])
-                    body=b'phone-capabilities-checked'
+                    capabilities=voice_platform.check_scribe_stt(key)
+                    body=b'scribe-stt-checked'
                 else:
                     body=provider_request(provider,key,row['model'],payload,preview_voice_id)
                 if is_test:
                     conn.execute('UPDATE provider_settings SET check_status="ok",checked_at=? WHERE provider=?',(now(),provider)); conn.commit()
-                    return self.send_json({'ok':True,'provider':provider,'message':'Bağlantı başarılı'})
+                    result={'ok':True,'provider':provider,'message':'Bağlantı başarılı'}
+                    if provider=='elevenlabs':
+                        result.update({'message':'ElevenLabs Scribe STT bağlantısı başarılı; TTS kontrol edilmedi.','capabilities':capabilities})
+                    return self.send_json(result)
                 if provider in {'elevenlabs','deepgram'}:
                     if not body: raise ValueError('Sağlayıcı ses döndürmedi.')
                     return self.send_json({'ok':True,'audio':base64.b64encode(body).decode(),'content_type':'audio/mpeg'})

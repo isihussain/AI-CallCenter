@@ -54,13 +54,13 @@ The sample context answers the call and starts `AudioSocket()` at `api:9019` on 
 
 ## Configure the panel and confirm readiness
 
-1. In **API connections**, save and enable the ElevenLabs key and Voice ID. Select **Check connection**; this opens a Scribe v3 Live session and requests a short, billable speech sample from the selected voice. The check validates the phone bridge's STT and TTS permissions without requiring account-profile access.
-   - An HTTP 402 means the ElevenLabs account needs credits or payment for speech generation. Changing API-key permissions does not resolve that billing response.
-2. Enable an OpenAI AI model suitable for function calling, or keep the existing OpenAI Realtime key enabled for the text-engine fallback.
-3. Open **API connections** and confirm the AudioSocket listener reports ready. This confirms OIM settings and credentials; it cannot confirm the FreePBX inbound route.
-4. Place one controlled call to the migrated DID. Confirm the opening greeting, Turkish/Russian/English recognition, a knowledge-base answer, and one appointment or callback action.
+1. In **API connections**, save and enable the ElevenLabs key. Select **Check connection**; this opens a Scribe v3 Live STT session without sending audio. The check needs no Voice ID or TTS model and does not synthesize speech. It verifies Scribe connectivity only.
+2. If you use the current bridge's ElevenLabs phone TTS, configure its Voice ID and TTS model separately. **Try & listen** can test speech synthesis. The Scribe connection result does not verify outbound phone audio.
+3. Enable an OpenAI AI model suitable for function calling, or keep the existing OpenAI Realtime key enabled for the text-engine fallback.
+4. Open **API connections** and confirm the AudioSocket listener reports ready. This confirms OIM settings and credentials; it cannot confirm the FreePBX inbound route or successful TTS playback.
+5. Place one controlled call to the migrated DID. Confirm the opening greeting, Turkish/Russian/English recognition, a knowledge-base answer, and one appointment or callback action.
 
-Scribe and TTS usage is billed by ElevenLabs. Scribe charges for streamed audio, including silence. Provider retention follows the ElevenLabs account settings; OIM stores the committed transcript in the tenant's call history.
+Live Scribe and TTS usage follows the ElevenLabs account terms. Scribe processes the streamed call audio, including silence. Provider retention follows the ElevenLabs account settings; OIM stores the committed transcript in the tenant's call history.
 
 ## Roll back
 

@@ -41,9 +41,11 @@ class CalendarEngineTests(ApiTestCase):
 
     @staticmethod
     def future_weekday(offset):
-        value = datetime.now(ZoneInfo("Europe/Istanbul")).date() + timedelta(days=offset)
-        while value.weekday() >= 5:
+        value = datetime.now(ZoneInfo("Europe/Istanbul")).date()
+        for _ in range(offset):
             value += timedelta(days=1)
+            while value.weekday() >= 5:
+                value += timedelta(days=1)
         return value
 
     def start(self, day=None, hour=12, minute=0):
@@ -301,13 +303,14 @@ class VoicePlatformApiTests(ApiTestCase):
         status, data, _ = self.request("POST", "/api/admin/providers", {"provider": "elevenlabs", "api_key": "synthetic-elevenlabs-key", "model": "eleven_flash_v2_5", "voice_id": "synthetic-voice", "enabled": True}, tenant=1)
         self.assertEqual(status, 200, data)
 
-    def test_connection_test_checks_phone_capabilities_without_user_read(self):
+    def test_connection_test_checks_scribe_stt_without_user_read(self):
         self.save_key()
-        with patch.object(voice_platform, "check_phone_capabilities", return_value={"scribe": True, "speech": True}) as check:
+        with patch.object(voice_platform, "check_scribe_stt", return_value={"scribe_stt": True, "tts": "not_checked"}) as check:
             status, data, _ = self.request("POST", "/api/admin/voice-platform/connection-test", {}, tenant=1)
         self.assertEqual(status, 200, data)
-        self.assertEqual(data["capabilities"], {"scribe": True, "speech": True})
-        check.assert_called_once_with("synthetic-elevenlabs-key", "synthetic-voice", "eleven_flash_v2_5")
+        self.assertEqual(data["capabilities"], {"scribe_stt": True, "tts": "not_checked"})
+        self.assertIn("TTS was not checked", data["message"])
+        check.assert_called_once_with("synthetic-elevenlabs-key")
 
     def test_signed_url_is_admin_only_uses_server_key_and_never_returns_it(self):
         route = "/api/admin/voice-platform/conversation-signed-url?agent_id=agent_synthetic_123"

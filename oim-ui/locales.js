@@ -2289,6 +2289,16 @@
     ["Anahtar bekliyor", "Awaiting key", "Ожидает ключ"],
     ["Ses kimliği bekliyor", "Awaiting Voice ID", "Ожидает Voice ID"],
     ["Bağlantı doğrulandı", "Connection verified", "Подключение проверено"],
+    [
+      "Scribe STT doğrulandı",
+      "Scribe STT verified",
+      "Scribe STT проверен",
+    ],
+    [
+      "Telefon STT'si için Scribe v3 (TR/RU/EN); bağlantı kontrolü yalnızca STT'yi sınar.",
+      "Scribe v3 for phone STT (TR/RU/EN); this connection check verifies STT only.",
+      "Scribe v3 для телефонного распознавания (TR/RU/EN); эта проверка подтверждает только STT.",
+    ],
     ["Harici yönlendirme", "External routing", "Внешняя маршрутизация"],
     ["Uygulama içi", "Application service", "Сервис приложения"],
     ["BAĞLANTI DETAYI", "CONNECTION DETAILS", "СВЕДЕНИЯ О ПОДКЛЮЧЕНИИ"],

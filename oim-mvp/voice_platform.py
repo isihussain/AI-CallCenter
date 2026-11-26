@@ -280,25 +280,10 @@ def _check_scribe_live(api_key):
         raise ProviderError(400, "ElevenLabs Scribe access failed. Check the real-time speech-to-text permission on the API key.") from None
 
 
-def check_phone_capabilities(api_key, voice_id, model="eleven_flash_v2_5"):
-    """Check the exact ElevenLabs capabilities used by the OIM phone bridge."""
-    if not voice_id:
-        raise ValueError("Save an ElevenLabs Voice ID before checking the phone bridge.")
+def check_scribe_stt(api_key):
+    """Verify the ElevenLabs Scribe live STT connection without testing TTS."""
     _check_scribe_live(api_key)
-
-    model = str(model or "eleven_flash_v2_5").strip()
-    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", model):
-        raise ValueError("Invalid ElevenLabs TTS model.")
-    response = provider_request(
-        api_key,
-        "POST",
-        "/v1/text-to-speech/" + _safe_id(voice_id) + "/stream",
-        {"text": "Hello.", "model_id": model},
-        query={"output_format": "ulaw_8000"},
-    )
-    if not isinstance(response, dict) or not response.get("size"):
-        raise ProviderError(502, "ElevenLabs did not return speech audio for the selected voice.")
-    return {"scribe": True, "speech": True}
+    return {"scribe_stt": True, "tts": "not_checked"}
 
 
 def _remote_config(agent):
@@ -789,14 +774,14 @@ def post_route(path, data, conn, api_key, protect, reveal, public_url):
         return 503, {"error": "Save an ElevenLabs API key in Integrations first."}
     try:
         if resource[0] == "connection-test":
-            provider = conn.execute("SELECT voice_id,model FROM provider_settings WHERE provider='elevenlabs'").fetchone()
+            provider = conn.execute("SELECT 1 FROM provider_settings WHERE provider='elevenlabs'").fetchone()
             if not provider:
                 raise ProviderError(400, "Save an enabled ElevenLabs provider before checking the phone bridge.")
-            capabilities = check_phone_capabilities(api_key, provider["voice_id"], provider["model"])
+            capabilities = check_scribe_stt(api_key)
             conn.execute("UPDATE provider_settings SET check_status='ok',checked_at=? WHERE provider='elevenlabs'", (int(time.time()),))
             conn.commit()
-            _event(conn, "elevenlabs_connection", "ok", "ElevenLabs phone capabilities verified.")
-            return 200, {"ok": True, "capabilities": capabilities}
+            _event(conn, "elevenlabs_connection", "ok", "ElevenLabs Scribe STT connection verified; TTS was not checked.")
+            return 200, {"ok": True, "message": "ElevenLabs Scribe STT connected; TTS was not checked.", "capabilities": capabilities}
         if resource[0] == "sync":
             synced = {}
             for kind, endpoint, collection in (("agent", "/v1/convai/agents", "agents"), ("tool", "/v1/convai/tools", "tools"), ("knowledge", "/v1/convai/knowledge-base", "documents"), ("voice", "/v2/voices", "voices")):

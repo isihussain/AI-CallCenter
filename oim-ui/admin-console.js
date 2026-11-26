@@ -36,7 +36,7 @@
       id: "elevenlabs",
       name: "ElevenLabs",
       icon: "sliders",
-      note: "Telefon görüşmeleri için Scribe v3 STT (TR/RU/EN) ve doğal TTS sesi.",
+      note: "Telefon STT'si için Scribe v3 (TR/RU/EN); bağlantı kontrolü yalnızca STT'yi sınar.",
       model: "eleven_flash_v2_5",
       kind: "SES",
     },
@@ -217,6 +217,11 @@
       throw Error(t(data.error || "İstek tamamlanamadı."));
     return data;
   }
+  function checkedLabel(provider) {
+    return provider === "elevenlabs"
+      ? "Scribe STT doğrulandı"
+      : "Bağlantı doğrulandı";
+  }
   function state(node) {
     if (!snapshot) return t("Bilinmiyor");
     if (node.id === "realtime") {
@@ -244,7 +249,7 @@
         return t("TTS uyumlu Deepgram modeli gerekli.");
       if (p.check_status === "error") return t("Son kontrol başarısız");
       return p.check_status === "ok"
-        ? t("Bağlantı doğrulandı")
+        ? t(checkedLabel(node.id))
         : t("Yapılandırıldı");
     }
     if (node.metric) return root.OIMI18n.number(snapshot.counts[node.metric]);
@@ -502,7 +507,7 @@
       feedback.setAttribute("aria-live", "polite");
       feedback.textContent = t(
         p.check_status === "ok"
-          ? "Bağlantı doğrulandı"
+          ? checkedLabel(profile.id)
           : p.check_status === "error"
             ? "Son kontrol başarısız"
             : "Henüz doğrulanmadı",
@@ -546,7 +551,7 @@
         feedback.textContent = t("Kontrol ediliyor…");
         try {
           await request("/api/admin/providers/test", { provider: profile.id });
-          feedback.textContent = t("Bağlantı doğrulandı");
+          feedback.textContent = t(checkedLabel(profile.id));
           await refreshFlow();
         } catch (error) {
           feedback.textContent = error.message;

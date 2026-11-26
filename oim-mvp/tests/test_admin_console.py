@@ -77,33 +77,26 @@ class ProviderConsoleTests(ApiTestCase):
         self.save('elevenlabs',enabled=False)
         self.assertEqual(self.request('POST','/api/admin/providers/preview',{'provider':'elevenlabs','text':'hello'},tenant=1)[0],400)
 
-    def test_elevenlabs_connection_check_uses_phone_capabilities_not_account_profile(self):
-        self.save('elevenlabs',voice_id='synthetic-voice',model='eleven_flash_v2_5')
-        with patch.object(backend.voice_platform,'check_phone_capabilities',return_value={'scribe':True,'speech':True}) as check, \
-             patch.object(backend.urllib.request,'urlopen',side_effect=AssertionError('unexpected account-profile request')):
+    def test_elevenlabs_connection_check_tests_scribe_stt_only(self):
+        self.save('elevenlabs',voice_id='',model='')
+        with patch.object(backend.voice_platform,'check_scribe_stt',return_value={'scribe_stt':True,'tts':'not_checked'}) as check, \
+             patch.object(backend.voice_platform,'provider_request',side_effect=AssertionError('unexpected ElevenLabs REST request')):
             status,data,_=self.request('POST','/api/admin/providers/test',{'provider':'elevenlabs'},tenant=1)
         self.assertEqual(status,200,data)
         self.assertTrue(data['ok'])
-        check.assert_called_once_with('synthetic-private-key','synthetic-voice','eleven_flash_v2_5')
+        self.assertEqual(data['capabilities'],{'scribe_stt':True,'tts':'not_checked'})
+        self.assertIn('TTS kontrol edilmedi',data['message'])
+        check.assert_called_once_with('synthetic-private-key')
         saved=next(item for item in self.get('/api/admin/providers',tenant=1)['items'] if item['provider']=='elevenlabs')
         self.assertEqual(saved['check_status'],'ok')
 
-    def test_elevenlabs_billing_error_reaches_the_admin_provider_check(self):
-        self.save('elevenlabs',voice_id='synthetic-voice',model='eleven_flash_v2_5')
-        with patch.object(backend.voice_platform,'check_phone_capabilities',side_effect=backend.voice_platform.ProviderError(400,'ElevenLabs requires available credits or payment for this speech request.')):
-            status,data,_=self.request('POST','/api/admin/providers/test',{'provider':'elevenlabs'},tenant=1)
-        self.assertEqual(status,502)
-        self.assertIn('credits or payment',data['error'])
-        saved=next(item for item in self.get('/api/admin/providers',tenant=1)['items'] if item['provider']=='elevenlabs')
-        self.assertEqual(saved['check_status'],'error')
-
-    def test_phone_capability_check_uses_scribe_and_streaming_tts(self):
+    def test_scribe_stt_check_never_requests_tts(self):
         with patch.object(backend.voice_platform,'_check_scribe_live') as scribe, \
-             patch.object(backend.voice_platform,'provider_request',return_value={'content_type':'audio/basic','size':160}) as tts:
-            result=backend.voice_platform.check_phone_capabilities('synthetic-private-key','synthetic-voice','eleven_flash_v2_5')
-        self.assertEqual(result,{'scribe':True,'speech':True})
+             patch.object(backend.voice_platform,'provider_request',side_effect=AssertionError('unexpected TTS request')) as provider:
+            result=backend.voice_platform.check_scribe_stt('synthetic-private-key')
+        self.assertEqual(result,{'scribe_stt':True,'tts':'not_checked'})
         scribe.assert_called_once_with('synthetic-private-key')
-        tts.assert_called_once_with('synthetic-private-key','POST','/v1/text-to-speech/synthetic-voice/stream',{'text':'Hello.','model_id':'eleven_flash_v2_5'},query={'output_format':'ulaw_8000'})
+        provider.assert_not_called()
 
     def test_deepgram_is_listed_and_flux_voice_preview_uses_v2_speak(self):
         items=self.get('/api/admin/providers',tenant=1)['items']
